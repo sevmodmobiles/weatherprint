@@ -4,6 +4,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.time.LocalDate
+import java.time.LocalDateTime
 
 data class DayForecast(
     val date: LocalDate,
@@ -13,12 +14,21 @@ data class DayForecast(
     val precipProb: Int,
 )
 
+data class HourForecast(
+    val time: LocalDateTime,
+    val code: Int,
+    val temp: Double,
+)
+
 data class Weather(
     val temp: Double,
     val feels: Double,
     val code: Int,
     val wind: Double,
     val days: List<DayForecast>,
+    val humidity: Int = 0,
+    val isDay: Boolean = true,
+    val hours: List<HourForecast> = emptyList(),
 )
 
 /** Бесплатный прогноз Open-Meteo, ключ не нужен. */
@@ -27,7 +37,8 @@ object WeatherApi {
         val url = URL(
             "https://api.open-meteo.com/v1/forecast" +
                 "?latitude=$lat&longitude=$lon" +
-                "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m" +
+                "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m,is_day" +
+                "&hourly=temperature_2m,weather_code" +
                 "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
                 "&wind_speed_unit=ms&timezone=auto&forecast_days=4"
         )
@@ -49,7 +60,20 @@ object WeatherApi {
                     precipProb = d.getJSONArray("precipitation_probability_max").optInt(i, 0),
                 )
             }
+            val h = json.getJSONObject("hourly")
+            val hTimes = h.getJSONArray("time")
+            val now = LocalDateTime.now().withMinute(0).withSecond(0).withNano(0)
+            val hours = (0 until hTimes.length()).map { i ->
+                HourForecast(
+                    time = LocalDateTime.parse(hTimes.getString(i)),
+                    code = h.getJSONArray("weather_code").optInt(i, 0),
+                    temp = h.getJSONArray("temperature_2m").optDouble(i, 0.0),
+                )
+            }.filter { !it.time.isBefore(now) }.take(24)
             return Weather(
+                humidity = cur.optInt("relative_humidity_2m", 0),
+                isDay = cur.optInt("is_day", 1) == 1,
+                hours = hours,
                 temp = cur.getDouble("temperature_2m"),
                 feels = cur.getDouble("apparent_temperature"),
                 code = cur.getInt("weather_code"),

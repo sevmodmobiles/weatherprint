@@ -27,6 +27,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var reloadBtn: Button
     private lateinit var sheet: SheetView
     private lateinit var printerLabel: TextView
+    private lateinit var weatherView: WeatherView
+    private var weatherLoadedAt = 0L
     private lateinit var updateBox: TextView
     private lateinit var updateBtn: Button
     private var pendingRelease: Updater.Release? = null
@@ -53,6 +55,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         if (::status.isInitialized) {
             refresh()
+            loadWeather()
             checkUpdate(silent = true)
         }
     }
@@ -62,7 +65,7 @@ class MainActivity : ComponentActivity() {
     private fun buildUi(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(24), dp(16), dp(24))
+            setPadding(dp(12), dp(12), dp(12), dp(24))
         }
         fun header(t: String) = TextView(this).apply {
             text = t; textSize = 18f; setTypeface(null, Typeface.BOLD); setPadding(0, dp(16), 0, dp(6))
@@ -76,12 +79,12 @@ class MainActivity : ComponentActivity() {
                 .also { root.addView(it) }
         }
 
-        root.addView(TextView(this).apply {
-            text = "Погода на принтер"; textSize = 24f; setTypeface(null, Typeface.BOLD)
-        })
+        weatherView = WeatherView(this).apply { city = prefs.city }
+        root.addView(weatherView)
 
         root.addView(TextView(this).apply {
-            text = "Версия ${Updater.currentVersionName(this@MainActivity)}"; setTextColor(Color.GRAY)
+            text = "Погода на принтер · версия ${Updater.currentVersionName(this@MainActivity)}"
+            setTextColor(Color.GRAY); setPadding(dp(4), dp(8), 0, dp(4))
         })
 
         updateBox = TextView(this).apply {
@@ -90,12 +93,6 @@ class MainActivity : ComponentActivity() {
         }
         root.addView(updateBox)
         updateBtn = button("Обновить") { startUpdate() }.apply { visibility = View.GONE }
-
-        status = TextView(this).apply { textSize = 15f; setPadding(0, dp(8), 0, dp(8)) }
-        root.addView(status)
-
-        sheet = SheetView(this)
-        root.addView(sheet)
 
         instruction = TextView(this).apply {
             textSize = 16f; setPadding(dp(12), dp(12), dp(12), dp(12))
@@ -111,6 +108,12 @@ class MainActivity : ComponentActivity() {
 
         button("Напечатать сейчас") { runPrint() }
         button("Проверить принтер") { checkPrinter() }
+
+        header("Бумага")
+        status = TextView(this).apply { textSize = 15f; setPadding(0, 0, 0, dp(8)) }
+        root.addView(status)
+        sheet = SheetView(this)
+        root.addView(sheet)
 
         header("Принтер")
         printerLabel = TextView(this).apply { textSize = 15f; setPadding(0, 0, 0, dp(4)) }
@@ -149,6 +152,9 @@ class MainActivity : ComponentActivity() {
         sheets.text.toString().toIntOrNull()?.let { prefs.sheets = it }
         fromHour.text.toString().toIntOrNull()?.let { prefs.fromHour = it }
         PrintJob.schedule(this)
+        weatherView.city = prefs.city
+        weatherLoadedAt = 0L
+        loadWeather()
         Toast.makeText(this, "Сохранено", Toast.LENGTH_SHORT).show()
         refresh()
     }
@@ -282,6 +288,20 @@ class MainActivity : ComponentActivity() {
                     checkPrinter()
                 }
                 .show()
+        }
+    }
+
+    /** Обновляет карточку погоды не чаще раза в 10 минут. */
+    private fun loadWeather() {
+        if (System.currentTimeMillis() - weatherLoadedAt < 10 * 60_000 && weatherView.weather != null) return
+        lifecycleScope.launch {
+            val r = withContext(Dispatchers.IO) { runCatching { WeatherApi.fetch(prefs.lat, prefs.lon) } }
+            r.onSuccess {
+                weatherView.weather = it
+                weatherLoadedAt = System.currentTimeMillis()
+            }.onFailure {
+                if (weatherView.weather == null) weatherView.message = "Нет связи с сервисом погоды"
+            }
         }
     }
 }
