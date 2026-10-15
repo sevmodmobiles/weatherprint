@@ -21,12 +21,18 @@ Android-приложение. Раз в день, когда телефон до
 
 После перекладки нажмите в приложении «Бумага заложена». Пока кнопка не нажата, печать стоит на паузе.
 
-## Сборка
+## Сборка и установка
 
-1. Установите Android Studio (бесплатно).
-2. File → Open → папка `WeatherPrint`. Дождитесь синхронизации Gradle.
-3. Подключите телефон по USB (включите «Отладку по USB») и нажмите ▶ Run.
-   Либо Build → Build App Bundle(s) / APK(s) → Build APK(s) и установите APK вручную.
+APK собирается автоматически в GitHub Actions при каждом push в `main` и публикуется на странице [Releases](https://github.com/sevmodmobiles/weatherprint/releases).
+
+Установка и обновления на телефоне — через [Obtainium](https://github.com/ImranR98/Obtainium):
+1. Установите Obtainium (APK со страницы его релизов на GitHub).
+2. Add App → URL `https://github.com/sevmodmobiles/weatherprint` → Add.
+3. Install. Дальше Obtainium сам покажет обновление после каждой новой сборки.
+
+APK подписывается постоянным ключом `app/signing.keystore`, поэтому обновления ставятся поверх старой версии без удаления.
+
+Ручная сборка: откройте папку в Android Studio и нажмите Run.
 
 ## Настройка
 
