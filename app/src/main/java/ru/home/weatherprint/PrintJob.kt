@@ -41,7 +41,7 @@ object PrintJob {
             if (LocalTime.now().hour < p.fromHour) return Outcome.SKIPPED to "Ещё рано"
         }
 
-        val lan = LocalNet.wifi(ctx)
+        val lan = LocalNet.route(ctx)
 
         /** Принтер отвечает — значит, телефон дома в той же сети. */
         fun ping() {

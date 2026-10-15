@@ -195,7 +195,7 @@ class MainActivity : ComponentActivity() {
         save()
         lifecycleScope.launch {
             val msg = withContext(Dispatchers.IO) {
-                val lan = LocalNet.wifi(this@MainActivity)
+                val lan = LocalNet.route(this@MainActivity)
                 try {
                     if (prefs.protocol == "escpr") {
                         EscprClient(prefs.printerHost, lan).ping()

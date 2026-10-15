@@ -53,16 +53,17 @@ object PrinterDiscovery {
     private val IPP_PATHS = listOf("/ipp/print", "/ipp/printer", "/ipp", "/")
 
     suspend fun discover(ctx: Context, seconds: Int = 6): Result = coroutineScope {
-        val lan = LocalNet.wifi(ctx)
+        val wifi = LocalNet.wifi(ctx)
+        val lan = LocalNet.route(ctx)
         val mdns = async { runCatching { mdns(ctx, lan, seconds) }.getOrElse { MdnsResult(emptyList(), "ошибка ${it.message}") } }
-        val scan = async { runCatching { scanSubnet(ctx, lan) }.getOrElse { ScanResult(emptyList(), "ошибка ${it.message}") } }
+        val scan = async { runCatching { scanSubnet(ctx, wifi, lan) }.getOrElse { ScanResult(emptyList(), "ошибка ${it.message}") } }
         val m = mdns.await()
         val s = scan.await()
         // Если принтер виден и так и так — оставляем запись из mDNS: у неё стабильное имя службы.
         val known = m.found.map { it.host }.toSet()
         val found = m.found + s.found.filter { it.host !in known }
         val report = buildString {
-            if (lan == null) append("Wi-Fi-сеть не найдена.\n")
+            if (wifi == null) append("Wi-Fi-сеть не найдена.\n")
             append("Bonjour: ${m.report}\n")
             append(s.report)
         }
@@ -168,8 +169,9 @@ object PrinterDiscovery {
 
     private enum class Port { OPEN, REFUSED, SILENT }
 
-    private suspend fun scanSubnet(ctx: Context, lan: Network?): ScanResult = withContext(Dispatchers.IO) {
-        val (own, prefixLen) = LocalNet.ownAddress(ctx, lan)
+    /** [wifi] — откуда брать адрес телефона и роутера, [lan] — через какую сеть слать запросы. */
+    private suspend fun scanSubnet(ctx: Context, wifi: Network?, lan: Network?): ScanResult = withContext(Dispatchers.IO) {
+        val (own, prefixLen) = LocalNet.ownAddress(ctx, wifi)
             ?: return@withContext ScanResult(emptyList(), "Адрес телефона в Wi-Fi не определён — перебор не выполнен.")
         val b = own.address
         val net = "${b[0].toInt() and 0xFF}.${b[1].toInt() and 0xFF}.${b[2].toInt() and 0xFF}."
@@ -198,9 +200,9 @@ object PrinterDiscovery {
         }
 
         // Роутер: отвечает ли он хоть на что-то — через Wi-Fi и через сеть по умолчанию.
-        val gw = LocalNet.gateway(ctx, lan)
+        val gw = LocalNet.gateway(ctx, wifi)
         val gwReport = gw?.let { g ->
-            val viaWifi = listOf(80, 443, 53).map { check(sf, g, it, 1500) }
+            val viaWifi = listOf(80, 443, 53).map { check(wifi?.socketFactory ?: sf, g, it, 1500) }
             val viaDefault = listOf(80, 443, 53).map { check(SocketFactory.getDefault(), g, it, 1500) }
             fun fmt(l: List<Probe>) = l.zip(listOf(80, 443, 53)).joinToString { (p, port) ->
                 "$port " + when (p.state) { Port.OPEN -> "открыт"; Port.REFUSED -> "закрыт"; Port.SILENT -> "нет ответа (${p.error})" }

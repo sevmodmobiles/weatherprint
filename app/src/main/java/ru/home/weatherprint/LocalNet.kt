@@ -7,11 +7,15 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import java.net.Inet4Address
 
-/**
- * Домашняя Wi-Fi-сеть. С принтером общаемся явно через неё: если на телефоне включён VPN,
- * запросы по умолчанию ушли бы в туннель и принтер оказался бы «не в сети».
- */
+/** Домашняя Wi-Fi-сеть: адрес телефона, роутер, через какую сеть ходить к принтеру. */
 object LocalNet {
+
+    /**
+     * Через какую сеть обращаться к устройствам дома. Без VPN — явно через Wi-Fi.
+     * С VPN — обычным путём (null): Android запрещает приложениям обходить VPN (ошибка EPERM),
+     * а VPN-клиенты, как правило, и так пускают локальную сеть мимо туннеля.
+     */
+    fun route(ctx: Context): Network? = if (vpnActive(ctx)) null else wifi(ctx)
 
     fun wifi(ctx: Context): Network? {
         val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
