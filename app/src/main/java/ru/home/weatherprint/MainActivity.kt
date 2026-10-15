@@ -86,7 +86,7 @@ class MainActivity : ComponentActivity() {
         root.addView(weatherView)
 
         root.addView(TextView(this).apply {
-            text = "Погода на принтер · версия ${Updater.currentVersionName(this@MainActivity)}"
+            text = "WeatherPrint · версия ${Updater.currentVersionName(this@MainActivity)}"
             setTextColor(Color.GRAY); setPadding(dp(4), dp(8), 0, dp(4))
         })
 
