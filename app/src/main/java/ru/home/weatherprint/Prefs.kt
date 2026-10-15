@@ -16,6 +16,11 @@ class Prefs(context: Context) {
         get() = sp.getString("host", "192.168.1.50")!!
         set(v) = sp.edit().putString("host", v.trim()).apply()
 
+    /** Имя принтера в сети (mDNS). По нему принтер ищется заново, если сменился IP. */
+    var printerName: String
+        get() = sp.getString("printerName", "")!!
+        set(v) = sp.edit().putString("printerName", v).apply()
+
     var ippPath: String
         get() = sp.getString("path", "/ipp/print")!!
         set(v) = sp.edit().putString("path", v.trim().let { if (it.startsWith("/")) it else "/$it" }).apply()

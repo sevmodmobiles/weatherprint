@@ -26,6 +26,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var instruction: TextView
     private lateinit var reloadBtn: Button
     private lateinit var sheet: SheetView
+    private lateinit var printerLabel: TextView
     private lateinit var updateBox: TextView
     private lateinit var updateBtn: Button
     private var pendingRelease: Updater.Release? = null
@@ -111,8 +112,13 @@ class MainActivity : ComponentActivity() {
         button("Напечатать сейчас") { runPrint() }
         button("Проверить принтер") { checkPrinter() }
 
+        header("Принтер")
+        printerLabel = TextView(this).apply { textSize = 15f; setPadding(0, 0, 0, dp(4)) }
+        root.addView(printerLabel)
+        button("Найти принтер в сети") { findPrinter() }
+
         header("Настройки")
-        host = field("IP-адрес принтера", prefs.printerHost)
+        host = field("IP-адрес принтера (заполняется сам при поиске)", prefs.printerHost)
         path = field("Путь IPP (обычно /ipp/print)", prefs.ippPath)
         city = field("Город (для заголовка)", prefs.city)
         val num = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
@@ -148,6 +154,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refresh() {
+        printerLabel.text = if (prefs.printerName.isNotEmpty())
+            "Выбран: ${prefs.printerName} (${prefs.printerHost})"
+        else "Принтер не выбран — нажмите «Найти принтер в сети»"
         val side = if (prefs.backSide) "оборот" else "лицевая сторона"
         status.text = "Проход ${prefs.pass + 1} из 8 ($side), лист ${prefs.sheetIndex + 1} из ${prefs.sheets}\n" +
             "Хватит ещё примерно на ${prefs.daysLeft} дн.\n" +
@@ -243,6 +252,36 @@ class MainActivity : ComponentActivity() {
                 updateBtn.text = "Обновить до ${rel.name}"
                 updateBtn.isEnabled = true
             }
+        }
+    }
+
+    private fun findPrinter() {
+        val dlg = android.app.ProgressDialog.show(this, null, "Ищу принтеры в сети…", true)
+        lifecycleScope.launch {
+            val list = runCatching { PrinterDiscovery.discover(this@MainActivity) }.getOrDefault(emptyList())
+            dlg.dismiss()
+            if (list.isEmpty()) {
+                android.app.AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Принтер не найден")
+                    .setMessage("Проверьте, что телефон подключён к домашнему Wi-Fi, а принтер включён и подключён к той же сети.")
+                    .setPositiveButton("OK", null)
+                    .show()
+                return@launch
+            }
+            val labels = list.map { "${it.model}\n${it.host}" }.toTypedArray()
+            android.app.AlertDialog.Builder(this@MainActivity)
+                .setTitle("Выберите принтер")
+                .setItems(labels) { _, i ->
+                    val f = list[i]
+                    prefs.printerName = f.name
+                    prefs.printerHost = f.host
+                    prefs.ippPath = f.path
+                    host.setText(f.host)
+                    path.setText(f.path)
+                    refresh()
+                    checkPrinter()
+                }
+                .show()
         }
     }
 }

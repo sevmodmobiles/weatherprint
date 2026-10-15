@@ -31,7 +31,7 @@ object PrintJob {
      * @param force true — «напечатать сейчас» из приложения: игнорирует дату и час,
      *              но счётчик бумаги учитывает так же.
      */
-    fun run(ctx: Context, force: Boolean): Pair<Outcome, String> {
+    suspend fun run(ctx: Context, force: Boolean): Pair<Outcome, String> {
         val p = Prefs(ctx)
         val today = LocalDate.now().toString()
 
@@ -41,13 +41,23 @@ object PrintJob {
             if (LocalTime.now().hour < p.fromHour) return Outcome.SKIPPED to "Ещё рано"
         }
 
-        val ipp = IppClient(p.printerHost, p.ippPath)
+        var ipp = IppClient(p.printerHost, p.ippPath)
 
         // Принтер отвечает — значит, телефон дома в той же сети.
         try {
             ipp.getAttributes(timeoutMs = 3000)
         } catch (e: Exception) {
-            return Outcome.SKIPPED to "Принтер не найден в сети (${e.message})"
+            // Возможно, роутер выдал принтеру новый IP — ищем его по имени.
+            val again = if (p.printerName.isNotEmpty()) PrinterDiscovery.findByName(ctx, p.printerName) else null
+            if (again == null) return Outcome.SKIPPED to "Принтер не найден в сети (${e.message})"
+            p.printerHost = again.host
+            p.ippPath = again.path
+            ipp = IppClient(again.host, again.path)
+            try {
+                ipp.getAttributes(timeoutMs = 3000)
+            } catch (e2: Exception) {
+                return Outcome.SKIPPED to "Принтер не отвечает (${e2.message})"
+            }
         }
 
         val weather = try {
