@@ -18,21 +18,19 @@ android {
 
     signingConfigs {
         create("release") {
-            val ks = file("release.keystore")
-            if (ks.exists()) {
-                storeFile = ks
-                storePassword = System.getenv("KEYSTORE_PASSWORD")
-                keyAlias = "weatherprint"
-                keyPassword = System.getenv("KEYSTORE_PASSWORD")
-            }
+            // Ключ лежит в репозитории, чтобы любая сборка (GitHub Actions или Android Studio)
+            // подписывалась одинаково и обновления ставились поверх старой версии.
+            storeFile = file("signing.keystore")
+            storePassword = "QYi4rvNH463K3bZrSKvrUNgv"
+            keyAlias = "weatherprint"
+            keyPassword = "QYi4rvNH463K3bZrSKvrUNgv"
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = if (file("release.keystore").exists())
-                signingConfigs.getByName("release") else signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
