@@ -13,6 +13,7 @@ import androidx.core.content.ContextCompat
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ForegroundInfo
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -38,7 +39,9 @@ object PrintJob {
         if (p.awaitingReload) return Outcome.SKIPPED to "Ждём перекладки бумаги"
         if (!force) {
             if (p.lastPrintDate == today) return Outcome.SKIPPED to "Сегодня уже печатали"
-            if (LocalTime.now().hour < p.fromHour) return Outcome.SKIPPED to "Ещё рано"
+            if (!p.scheduleEnabled) return Outcome.SKIPPED to "Печать по расписанию выключена"
+            val now = LocalTime.now()
+            if (now.hour * 60 + now.minute < p.printMinutes) return Outcome.SKIPPED to "Ещё рано"
         }
 
         val lan = LocalNet.route(ctx)
@@ -155,6 +158,17 @@ object PrintJob {
 }
 
 class PrintWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
+    /** Нужен только на Android до 12: там срочная работа выполняется как служба с уведомлением. */
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        val nm = applicationContext.getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(NotificationChannel("work", "Печать", NotificationManager.IMPORTANCE_LOW))
+        val n = NotificationCompat.Builder(applicationContext, "work")
+            .setSmallIcon(android.R.drawable.ic_menu_today)
+            .setContentTitle("Печатаю прогноз погоды")
+            .build()
+        return ForegroundInfo(2, n)
+    }
+
     override suspend fun doWork(): Result {
         PrintJob.run(applicationContext, force = false)
         return Result.success()

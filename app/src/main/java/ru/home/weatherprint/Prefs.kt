@@ -47,10 +47,15 @@ class Prefs(context: Context) {
         get() = sp.getInt("sheets", 30)
         set(v) = sp.edit().putInt("sheets", v.coerceIn(1, 100)).apply()
 
-    /** Не печатать раньше этого часа (чтобы печать была, когда вы дома). */
-    var fromHour: Int
-        get() = sp.getInt("fromHour", 17)
-        set(v) = sp.edit().putInt("fromHour", v.coerceIn(0, 23)).apply()
+    /** Печатать ли по расписанию. */
+    var scheduleEnabled: Boolean
+        get() = sp.getBoolean("scheduleEnabled", true)
+        set(v) = sp.edit().putBoolean("scheduleEnabled", v).apply()
+
+    /** Время печати, минуты от полуночи. По умолчанию — бывшая настройка «не раньше, часов». */
+    var printMinutes: Int
+        get() = sp.getInt("printMinutes", sp.getInt("fromHour", 17) * 60)
+        set(v) = sp.edit().putInt("printMinutes", v.coerceIn(0, 24 * 60 - 1)).apply()
 
     /** Номер листа в текущем проходе, 0 .. sheets-1. */
     var sheetIndex: Int

@@ -40,7 +40,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var lat: EditText
     private lateinit var lon: EditText
     private lateinit var sheets: EditText
-    private lateinit var fromHour: EditText
+    private lateinit var scheduleOn: android.widget.CheckBox
+    private lateinit var printTime: TextView
+    private lateinit var nextPrint: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,6 +50,7 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 33) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         setContentView(buildUi())
         PrintJob.schedule(this)
+        PrintSchedule.arm(this)
         refresh()
     }
 
@@ -115,6 +118,27 @@ class MainActivity : ComponentActivity() {
         sheet = SheetView(this)
         root.addView(sheet)
 
+        header("Печать по расписанию")
+        scheduleOn = android.widget.CheckBox(this).apply {
+            text = "Печатать каждый день автоматически"; textSize = 16f
+            isChecked = prefs.scheduleEnabled
+            setOnCheckedChangeListener { _, on ->
+                prefs.scheduleEnabled = on
+                PrintSchedule.arm(this@MainActivity)
+                refresh()
+            }
+        }
+        root.addView(scheduleOn)
+        printTime = TextView(this).apply {
+            textSize = 34f; setTypeface(null, Typeface.BOLD); setPadding(dp(4), dp(4), 0, 0)
+            setTextColor(Color.rgb(0, 110, 200))
+            setOnClickListener { pickTime() }
+        }
+        root.addView(printTime)
+        nextPrint = TextView(this).apply { textSize = 14f; setTextColor(Color.GRAY); setPadding(dp(4), 0, 0, dp(4)) }
+        root.addView(nextPrint)
+        button("Изменить время печати") { pickTime() }
+
         header("Принтер")
         printerLabel = TextView(this).apply { textSize = 15f; setPadding(0, 0, 0, dp(4)) }
         root.addView(printerLabel)
@@ -133,7 +157,6 @@ class MainActivity : ComponentActivity() {
         lat = field("Широта", prefs.lat.toString(), num)
         lon = field("Долгота", prefs.lon.toString(), num)
         sheets = field("Листов в пачке", prefs.sheets.toString(), InputType.TYPE_CLASS_NUMBER)
-        fromHour = field("Печатать не раньше, часов", prefs.fromHour.toString(), InputType.TYPE_CLASS_NUMBER)
         button("Сохранить настройки") { save() }
 
         header("Обновления")
@@ -155,7 +178,6 @@ class MainActivity : ComponentActivity() {
         lat.text.toString().replace(',', '.').toDoubleOrNull()?.let { prefs.lat = it }
         lon.text.toString().replace(',', '.').toDoubleOrNull()?.let { prefs.lon = it }
         sheets.text.toString().toIntOrNull()?.let { prefs.sheets = it }
-        fromHour.text.toString().toIntOrNull()?.let { prefs.fromHour = it }
         PrintJob.schedule(this)
         weatherView.city = prefs.city
         weatherLoadedAt = 0L
@@ -164,7 +186,24 @@ class MainActivity : ComponentActivity() {
         refresh()
     }
 
+    private fun pickTime() {
+        val m = prefs.printMinutes
+        android.app.TimePickerDialog(this, { _, h, min ->
+            prefs.printMinutes = h * 60 + min
+            prefs.scheduleEnabled = true
+            scheduleOn.isChecked = true
+            PrintSchedule.arm(this)
+            refresh()
+        }, m / 60, m % 60, true).show()
+    }
+
     private fun refresh() {
+        printTime.text = PrintSchedule.format(prefs.printMinutes)
+        printTime.alpha = if (prefs.scheduleEnabled) 1f else 0.4f
+        nextPrint.text = if (prefs.scheduleEnabled)
+            "Следующая печать: ${PrintSchedule.describe(this)}. Если принтер в это время недоступен, " +
+                "приложение повторит попытку позже в тот же день."
+        else "Расписание выключено — печать только кнопкой «Напечатать сейчас»"
         printerLabel.text = if (prefs.printerName.isNotEmpty())
             "Выбран: ${prefs.printerName} (${prefs.printerHost})"
         else "Принтер не выбран — нажмите «Найти принтер в сети»"
