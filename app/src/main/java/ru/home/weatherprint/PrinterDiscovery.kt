@@ -171,18 +171,31 @@ object PrinterDiscovery {
         // Порт 631 — IPP, 9100 — «сырая» печать, 80 — веб-интерфейс (у Epson он есть всегда).
         val ports = listOf(IPP_PORT, 9100, 80)
         val limit = Semaphore(96)
-        val states: Map<String, Map<Int, Port>> = hosts.map { ip ->
+        val probes: Map<String, Map<Int, Probe>> = hosts.map { ip ->
             async {
                 ip to ports.associateWith { port -> limit.withPermit { check(sf, ip, port, 800) } }
             }
         }.awaitAll().toMap()
+        val states = probes.mapValues { (_, m) -> m.mapValues { it.value.state } }
 
         val alive = states.filterValues { m -> m.values.any { it != Port.SILENT } }.keys
         val ipp = states.filterValues { it[IPP_PORT] == Port.OPEN }.keys
         val found = ipp.map { ip -> async { probe(ip, lan) } }.awaitAll().filterNotNull()
 
+        // Роутер: отвечает ли он хоть на что-то — через Wi-Fi и через сеть по умолчанию.
+        val gw = LocalNet.gateway(ctx, lan)
+        val gwReport = gw?.let { g ->
+            val viaWifi = listOf(80, 443, 53).map { check(sf, g, it, 1500) }
+            val viaDefault = listOf(80, 443, 53).map { check(SocketFactory.getDefault(), g, it, 1500) }
+            fun fmt(l: List<Probe>) = l.zip(listOf(80, 443, 53)).joinToString { (p, port) ->
+                "$port " + when (p.state) { Port.OPEN -> "открыт"; Port.REFUSED -> "закрыт"; Port.SILENT -> "нет ответа (${p.error})" }
+            }
+            "Роутер $g через Wi-Fi: ${fmt(viaWifi)}.\nРоутер $g напрямую: ${fmt(viaDefault)}."
+        }
+
         val report = buildString {
             append("Телефон: ${own.hostAddress}/$prefixLen. Проверены адреса ${net}1–254.\n")
+            append("VPN: ${if (LocalNet.vpnActive(ctx)) "включён" else "нет"}.\n")
             append("Отвечают устройств: ${alive.size}")
             if (alive.isNotEmpty()) append(" (${alive.sortedBy { it.substringAfterLast('.').toInt() }.joinToString { it.substringAfterLast('.') }})")
             append(".\n")
@@ -192,21 +205,34 @@ object PrinterDiscovery {
             val epsonWeb = (states.filterValues { it[80] == Port.OPEN }.keys - ipp)
                 .filter { looksLikeEpson(it, lan) }
             if (epsonWeb.isNotEmpty()) append("Веб-интерфейс Epson: ${epsonWeb.joinToString()} — принтер есть, но IPP не отвечает.\n")
-            if (alive.size <= 1) append("Телефон почти никого не видит — похоже, в роутере включена изоляция клиентов (или это гостевая сеть).\n")
+            val errors = probes.values.flatMap { it.values }.mapNotNull { it.error }
+                .groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(3)
+            if (errors.isNotEmpty()) append("Ошибки соединений: ${errors.joinToString { "${it.key} ×${it.value}" }}.\n")
+            if (gwReport != null) append(gwReport).append("\n")
+            if (alive.size <= 1) append("Телефон почти никого не видит в сети.\n")
         }.trimEnd()
         ScanResult(found, report)
     }
 
-    private fun check(sf: SocketFactory, ip: String, port: Int, timeoutMs: Int): Port =
+    private class Probe(val state: Port, val error: String? = null)
+
+    private fun check(sf: SocketFactory, ip: String, port: Int, timeoutMs: Int): Probe =
         try {
             sf.createSocket().use { it.connect(InetSocketAddress(ip, port), timeoutMs) }
-            Port.OPEN
+            Probe(Port.OPEN)
         } catch (e: ConnectException) {
             // «Connection refused» — узел есть, просто порт закрыт.
-            if (e.message.orEmpty().contains("refused", ignoreCase = true)) Port.REFUSED else Port.SILENT
+            if (e.message.orEmpty().contains("refused", ignoreCase = true)) Probe(Port.REFUSED)
+            else Probe(Port.SILENT, shortError(e))
         } catch (e: Exception) {
-            Port.SILENT
+            Probe(Port.SILENT, shortError(e))
         }
+
+    /** «SocketTimeoutException», «EPERM (Operation not permitted)» и т. п. — без адресов, чтобы группировать. */
+    private fun shortError(e: Exception): String {
+        val code = Regex("""E[A-Z]+ \([^)]*\)""").find(e.message.orEmpty())?.value
+        return code ?: e.javaClass.simpleName
+    }
 
     private fun looksLikeEpson(ip: String, lan: Network?): Boolean = runCatching {
         val url = URL("http://$ip/")

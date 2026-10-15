@@ -32,4 +32,18 @@ object LocalNet {
         val la = lp.linkAddresses.firstOrNull { it.address is Inet4Address } ?: return null
         return (la.address as Inet4Address) to la.prefixLength
     }
+
+    /** Адрес роутера (шлюз маршрута по умолчанию) в Wi-Fi. */
+    fun gateway(ctx: Context, network: Network?): String? {
+        network ?: return null
+        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val lp = cm.getLinkProperties(network) ?: return null
+        return lp.routes.firstOrNull { it.isDefaultRoute && it.gateway is Inet4Address }?.gateway?.hostAddress
+    }
+
+    fun vpnActive(ctx: Context): Boolean {
+        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        @Suppress("DEPRECATION")
+        return cm.allNetworks.any { cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true }
+    }
 }
