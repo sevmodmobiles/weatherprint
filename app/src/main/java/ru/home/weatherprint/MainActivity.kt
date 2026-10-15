@@ -26,6 +26,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var instruction: TextView
     private lateinit var reloadBtn: Button
     private lateinit var sheet: SheetView
+    private lateinit var updateBox: TextView
+    private lateinit var updateBtn: Button
+    private var pendingRelease: Updater.Release? = null
+    private var updating = false
 
     private lateinit var host: EditText
     private lateinit var path: EditText
@@ -46,7 +50,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (::status.isInitialized) refresh()
+        if (::status.isInitialized) {
+            refresh()
+            checkUpdate(silent = true)
+        }
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -71,6 +78,17 @@ class MainActivity : ComponentActivity() {
         root.addView(TextView(this).apply {
             text = "Погода на принтер"; textSize = 24f; setTypeface(null, Typeface.BOLD)
         })
+
+        root.addView(TextView(this).apply {
+            text = "Версия ${Updater.currentVersionName(this@MainActivity)}"; setTextColor(Color.GRAY)
+        })
+
+        updateBox = TextView(this).apply {
+            textSize = 15f; setPadding(dp(12), dp(12), dp(12), dp(12))
+            setBackgroundColor(Color.rgb(214, 238, 255)); visibility = View.GONE
+        }
+        root.addView(updateBox)
+        updateBtn = button("Обновить") { startUpdate() }.apply { visibility = View.GONE }
 
         status = TextView(this).apply { textSize = 15f; setPadding(0, dp(8), 0, dp(8)) }
         root.addView(status)
@@ -103,6 +121,9 @@ class MainActivity : ComponentActivity() {
         sheets = field("Листов в пачке", prefs.sheets.toString(), InputType.TYPE_CLASS_NUMBER)
         fromHour = field("Печатать не раньше, часов", prefs.fromHour.toString(), InputType.TYPE_CLASS_NUMBER)
         button("Сохранить настройки") { save() }
+
+        header("Обновления")
+        button("Проверить обновления") { checkUpdate(silent = false) }
 
         header("Счётчик")
         button("Новая пачка: сбросить счётчик") {
@@ -170,6 +191,58 @@ class MainActivity : ComponentActivity() {
                 }
             }
             status.text = msg
+        }
+    }
+
+    private fun checkUpdate(silent: Boolean) {
+        if (updating) return
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) { runCatching { Updater.checkForUpdate(this@MainActivity) } }
+            val rel = result.getOrNull()
+            pendingRelease = rel
+            if (rel != null) {
+                updateBox.text = "Доступна версия ${rel.name}" +
+                    (if (rel.notes.isNotBlank()) "\n\nЧто нового:\n${rel.notes}" else "")
+                updateBox.visibility = View.VISIBLE
+                updateBtn.text = "Обновить до ${rel.name}"
+                updateBtn.visibility = View.VISIBLE
+                updateBtn.isEnabled = true
+            } else {
+                updateBox.visibility = View.GONE
+                updateBtn.visibility = View.GONE
+                if (!silent) {
+                    val msg = result.exceptionOrNull()?.let { "Не удалось проверить: ${it.message}" }
+                        ?: "У вас последняя версия"
+                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun startUpdate() {
+        val rel = pendingRelease ?: return
+        if (!Updater.ensureInstallPermission(this)) {
+            Toast.makeText(this, "Разрешите установку обновлений и нажмите «Обновить» ещё раз", Toast.LENGTH_LONG).show()
+            return
+        }
+        updating = true
+        updateBtn.isEnabled = false
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val apk = Updater.download(this@MainActivity, rel) { pct ->
+                        runOnUiThread { updateBtn.text = "Скачивание… $pct%" }
+                    }
+                    runOnUiThread { updateBtn.text = "Установка…" }
+                    Updater.install(this@MainActivity, apk)
+                }
+            }
+            updating = false
+            result.exceptionOrNull()?.let {
+                Toast.makeText(this@MainActivity, "Ошибка обновления: ${it.message}", Toast.LENGTH_LONG).show()
+                updateBtn.text = "Обновить до ${rel.name}"
+                updateBtn.isEnabled = true
+            }
         }
     }
 }

@@ -27,10 +27,13 @@ jobs:
           ./gradlew assembleRelease --no-daemon
           cp app/build/outputs/apk/release/app-release.apk WeatherPrint.apk
 
+      - name: Release notes
+        run: git log -1 --pretty=%B | grep -v -E '^(Co-Authored-By|Claude-Session):' | sed '/^$/N;/^\n$/D' > notes.txt
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.${{ github.run_number }}
           name: WeatherPrint 1.${{ github.run_number }}
-          body: ${{ github.event.head_commit.message }}
+          body_path: notes.txt
           files: WeatherPrint.apk
