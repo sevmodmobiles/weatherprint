@@ -43,17 +43,61 @@ class EscprClient(private val host: String, private val network: Network? = null
         socket(timeoutMs).close()
     }
 
+    /** Кусок страницы: растр и положение его левого верхнего угла в печатной области (точки 360 dpi). */
+    class Part(val bitmap: Bitmap, val x: Int, val y: Int)
+
     /**
      * Печатает растр [bmp] на листе A4. [x], [y] — положение левого верхнего угла растра
      * в точках 360 dpi относительно печатной области (лист минус поля 3 мм).
      */
-    fun print(bmp: Bitmap, x: Int, y: Int) {
+    fun print(bmp: Bitmap, x: Int, y: Int) = printParts(sequenceOf(Part(bmp, x, y)), recycle = false)
+
+    /**
+     * Печатает одну страницу из нескольких кусков (сверху вниз) — так целый лист не нужно
+     * держать в памяти. Куски отправляются по мере получения; при [recycle] освобождаются сразу.
+     */
+    fun printParts(parts: Sequence<Part>, recycle: Boolean = true) {
+        send { out ->
+            startJob(out)
+            cmd(out, 'p', "sttp", ByteArray(0))
+            cmd(out, 'p', "setn", byteArrayOf(1))
+            for (p in parts) {
+                sendRaster(out, p.bitmap, p.x, p.y)
+                if (recycle) p.bitmap.recycle()
+            }
+            cmd(out, 'p', "endp", byteArrayOf(0)) // 0 — страниц больше нет
+            endJob(out)
+        }
+    }
+
+    /** Прочистка печатающей головки (все цвета). Принтер работает около минуты и тратит чернила. */
+    fun headCleaning() = maintenance(listOf("CH" to byteArrayOf(0, 0)))
+
+    /** Печать шаблона проверки дюз. Нужен лист бумаги в лотке. */
+    fun nozzleCheck() = maintenance(listOf(
+        "VI" to byteArrayOf(0, 0),
+        "NC" to byteArrayOf(0, 0x10),
+        "NC" to byteArrayOf(0, 0),
+    ))
+
+    /** Служебные команды — та же последовательность, что у escputil из Gutenprint. */
+    private fun maintenance(cmds: List<Pair<String, ByteArray>>) = send { out ->
+        exitPacketMode(out)
+        remoteEnter(out)
+        for ((name, args) in cmds) {
+            out.write(name.toByteArray(Charsets.US_ASCII))
+            out.write(byteArrayOf(args.size.toByte(), (args.size shr 8).toByte()))
+            out.write(args)
+        }
+        out.write(byteArrayOf(0x1B, 0x00, 0x00, 0x00, 0x1B, 0x00))
+        out.write(byteArrayOf(0x0C, 0x1B, 0x00, 0x1B, 0x00))
+    }
+
+    private fun send(body: (OutputStream) -> Unit) {
         socket(5000).use { s ->
             s.soTimeout = 60_000
             val out = BufferedOutputStream(s.getOutputStream(), 64 * 1024)
-            startJob(out)
-            sendPage(out, bmp, x, y)
-            endJob(out)
+            body(out)
             out.flush()
             // Дочитываем ответ принтера, чтобы не оборвать соединение раньше времени.
             runCatching {
@@ -66,12 +110,16 @@ class EscprClient(private val host: String, private val network: Network? = null
         }
     }
 
-    // ---------- Начало и конец задания (режим REMOTE1) ----------
-
-    private fun startJob(out: OutputStream) {
+    private fun exitPacketMode(out: OutputStream) {
         // Выход из пакетного режима IEEE 1284.4 и сброс принтера
         out.write(byteArrayOf(0x00, 0x00, 0x00, 0x1B, 0x01) + "@EJL 1284.4\n@EJL     \n".toByteArray(Charsets.US_ASCII))
         out.write(byteArrayOf(0x1B, '@'.code.toByte()))
+    }
+
+    // ---------- Начало и конец задания (режим REMOTE1) ----------
+
+    private fun startJob(out: OutputStream) {
+        exitPacketMode(out)
 
         remoteEnter(out)
         val t = LocalDateTime.now()
@@ -112,10 +160,7 @@ class EscprClient(private val host: String, private val network: Network? = null
 
     // ---------- Страница ----------
 
-    private fun sendPage(out: OutputStream, bmp: Bitmap, x: Int, y: Int) {
-        cmd(out, 'p', "sttp", ByteArray(0))
-        cmd(out, 'p', "setn", byteArrayOf(1))
-
+    private fun sendRaster(out: OutputStream, bmp: Bitmap, x: Int, y: Int) {
         val w = bmp.width
         val row = IntArray(w)
         val rgb = ByteArray(w * 3)
@@ -145,8 +190,6 @@ class EscprClient(private val host: String, private val network: Network? = null
             d.write(rgb, 0, n)
             cmd(out, 'd', "dsnd", d.toByteArray())
         }
-
-        cmd(out, 'p', "endp", byteArrayOf(0)) // 0 — страниц больше нет
     }
 
     // ---------- Кадры команд ----------

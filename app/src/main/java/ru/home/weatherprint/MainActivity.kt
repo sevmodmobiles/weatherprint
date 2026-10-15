@@ -120,6 +120,11 @@ class MainActivity : ComponentActivity() {
         root.addView(printerLabel)
         button("Найти принтер в сети") { findPrinter() }
 
+        header("Обслуживание принтера")
+        button("Проверка дюз") { maintenance(Maint.NOZZLE) }
+        button("Прочистка печатающей головки") { maintenance(Maint.CLEAN) }
+        button("Тест качества печати") { maintenance(Maint.TEST) }
+
         header("Настройки")
         host = field("IP-адрес принтера (заполняется сам при поиске)", prefs.printerHost)
         path = field("Путь IPP (обычно /ipp/print)", prefs.ippPath)
@@ -212,6 +217,64 @@ class MainActivity : ComponentActivity() {
                 }
             }
             status.text = msg
+        }
+    }
+
+    private enum class Maint { NOZZLE, CLEAN, TEST }
+
+    private val sheetHint = "Выньте пачку с прогнозами из лотка и положите один чистый лист, " +
+        "иначе принтер возьмёт лист из пачки. После — верните пачку на место."
+
+    /** Проверка дюз, прочистка и тестовая страница — с подтверждением, потому что тратят бумагу и чернила. */
+    private fun maintenance(kind: Maint) {
+        save()
+        val escpr = prefs.protocol == "escpr"
+        if (!escpr && kind != Maint.TEST) {
+            Toast.makeText(this, "Доступно для Epson, найденного как «печать Epson ESC/P-R»", Toast.LENGTH_LONG).show()
+            return
+        }
+        val (title, text) = when (kind) {
+            Maint.NOZZLE -> "Проверка дюз" to
+                "Принтер напечатает шаблон из линий каждого цвета. Если в линиях есть разрывы — нужна прочистка.\n\n$sheetHint"
+            Maint.CLEAN -> "Прочистка головки" to
+                "Прочистка расходует чернила и занимает 1–2 минуты — не выключайте принтер, пока мигает индикатор. " +
+                "Потом сделайте проверку дюз.\n\nЕсли после 2–3 прочисток подряд разрывы остаются, " +
+                "дайте принтеру постоять несколько часов и повторите."
+            Maint.TEST -> "Тест качества печати" to
+                "Принтер напечатает целый лист: заливки всеми чернилами, градиенты, шкалу серого, спектр, тонкие линии и мелкий текст. " +
+                "Счётчик бумаги не меняется.\n\n$sheetHint"
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(text)
+            .setPositiveButton(if (kind == Maint.CLEAN) "Начать" else "Печатать") { _, _ -> runMaintenance(kind) }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
+    private fun runMaintenance(kind: Maint) {
+        Toast.makeText(this, "Отправляю на принтер…", Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            val r = withContext(Dispatchers.IO) {
+                runCatching {
+                    val lan = LocalNet.route(this@MainActivity)
+                    val epson = EscprClient(prefs.printerHost, lan)
+                    when (kind) {
+                        Maint.NOZZLE -> epson.nozzleCheck()
+                        Maint.CLEAN -> epson.headCleaning()
+                        Maint.TEST ->
+                            if (prefs.protocol == "escpr") epson.printParts(TestPage.bands())
+                            else IppClient(prefs.printerHost, prefs.ippPath, lan)
+                                .printJob(TestPage.renderJpeg(), "image/jpeg", "Тест качества печати")
+                    }
+                }
+            }
+            val msg = r.exceptionOrNull()?.let { "Не получилось: ${it.message}" } ?: when (kind) {
+                Maint.NOZZLE -> "Шаблон проверки дюз отправлен"
+                Maint.CLEAN -> "Прочистка запущена — подождите 1–2 минуты"
+                Maint.TEST -> "Тестовая страница отправлена"
+            }
+            Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
         }
     }
 
