@@ -41,7 +41,8 @@ object PrintJob {
             if (LocalTime.now().hour < p.fromHour) return Outcome.SKIPPED to "Ещё рано"
         }
 
-        var ipp = IppClient(p.printerHost, p.ippPath)
+        val lan = LocalNet.wifi(ctx)
+        var ipp = IppClient(p.printerHost, p.ippPath, lan)
 
         // Принтер отвечает — значит, телефон дома в той же сети.
         try {
@@ -52,7 +53,7 @@ object PrintJob {
             if (again == null) return Outcome.SKIPPED to "Принтер не найден в сети (${e.message})"
             p.printerHost = again.host
             p.ippPath = again.path
-            ipp = IppClient(again.host, again.path)
+            ipp = IppClient(again.host, again.path, lan)
             try {
                 ipp.getAttributes(timeoutMs = 3000)
             } catch (e2: Exception) {

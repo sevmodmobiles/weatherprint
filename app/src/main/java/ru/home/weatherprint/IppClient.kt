@@ -1,5 +1,6 @@
 package ru.home.weatherprint
 
+import android.net.Network
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.net.HttpURLConnection
@@ -10,7 +11,12 @@ import kotlin.random.Random
  * Минимальный клиент IPP (тот же протокол, что у AirPrint/Mopria).
  * Печать идёт напрямую по сети, без системного диалога.
  */
-class IppClient(private val host: String, private val path: String) {
+class IppClient(
+    private val host: String,
+    private val path: String,
+    /** Через какую сеть идти к принтеру (Wi-Fi в обход VPN). null — сеть по умолчанию. */
+    private val network: Network? = null,
+) {
 
     class IppException(msg: String) : Exception(msg)
 
@@ -84,7 +90,8 @@ class IppClient(private val host: String, private val path: String) {
     }
 
     private fun post(body: ByteArray, timeoutMs: Int): ByteArray {
-        val conn = URL(httpUrl).openConnection() as HttpURLConnection
+        val url = URL(httpUrl)
+        val conn = (network?.openConnection(url) ?: url.openConnection()) as HttpURLConnection
         try {
             conn.connectTimeout = timeoutMs
             conn.readTimeout = maxOf(timeoutMs, 15_000)

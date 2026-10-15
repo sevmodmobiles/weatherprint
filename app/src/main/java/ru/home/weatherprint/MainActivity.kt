@@ -196,7 +196,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             val msg = withContext(Dispatchers.IO) {
                 try {
-                    val a = IppClient(prefs.printerHost, prefs.ippPath).getAttributes()
+                    val a = IppClient(prefs.printerHost, prefs.ippPath, LocalNet.wifi(this@MainActivity)).getAttributes()
                     val model = a["printer-make-and-model"]?.firstOrNull() ?: "?"
                     val formats = a["document-format-supported"].orEmpty()
                     val jpeg = if ("image/jpeg" in formats) "JPEG поддерживается ✓" else "JPEG НЕ найден в списке форматов"
@@ -262,18 +262,25 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun findPrinter() {
-        val dlg = android.app.ProgressDialog.show(this, null, "Ищу принтеры в сети…", true)
+        val dlg = android.app.ProgressDialog.show(this, null, "Ищу принтеры в сети… (до 15 секунд)", true)
         lifecycleScope.launch {
-            val list = runCatching { PrinterDiscovery.discover(this@MainActivity) }.getOrDefault(emptyList())
+            val res = runCatching { PrinterDiscovery.discover(this@MainActivity) }
+                .getOrElse { PrinterDiscovery.Result(emptyList(), "Ошибка поиска: ${it.message}") }
+            val list = res.found
             dlg.dismiss()
             if (list.isEmpty()) {
                 android.app.AlertDialog.Builder(this@MainActivity)
                     .setTitle("Принтер не найден")
                     .setMessage(
-                        "Проверьте, что телефон подключён к домашнему Wi-Fi, а принтер включён и подключён к той же сети.\n\n" +
-                            "Если не помогло — посмотрите IP принтера в списке устройств роутера и введите его вручную."
+                        "Проверьте, что телефон подключён к домашнему Wi-Fi, а принтер включён и подключён к той же сети. " +
+                            "Если не помогло — посмотрите IP принтера в списке устройств роутера и введите его вручную.\n\n" +
+                            "Что удалось выяснить:\n" + res.report
                     )
                     .setPositiveButton("OK", null)
+                    .setNeutralButton("Скопировать") { _, _ ->
+                        val cb = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        cb.setPrimaryClip(android.content.ClipData.newPlainText("WeatherPrint", res.report))
+                    }
                     .show()
                 return@launch
             }
