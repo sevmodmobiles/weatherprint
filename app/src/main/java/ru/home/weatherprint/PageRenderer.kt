@@ -42,6 +42,36 @@ object PageRenderer {
         return out.toByteArray()
     }
 
+    /** Растр одной четверти для ESC/P-R: картинка и её положение в печатной области (точки 360 dpi). */
+    class Quarter(val bitmap: Bitmap, val x: Int, val y: Int)
+
+    /**
+     * Рисует ту же четверть, что и [renderJpeg], но сразу в 360 dpi и только её саму — для печати
+     * через [EscprClient]. Участки за полями принтера (3 мм) обрезаются.
+     */
+    fun renderQuarter(w: Weather, quadrant: Int, city: String, footer: String): Quarter {
+        val e = EscprClient
+        val qw = e.PAPER_W / 2
+        val qh = e.PAPER_H / 2
+        val qx = (quadrant % 2) * qw
+        val qy = (quadrant / 2) * qh
+        // Пересечение четверти с печатной областью, в точках листа
+        val x0 = maxOf(qx, e.MARGIN)
+        val y0 = maxOf(qy, e.MARGIN)
+        val x1 = minOf(qx + qw, e.PAPER_W - e.MARGIN)
+        val y1 = minOf(qy + qh, e.PAPER_H - e.MARGIN)
+
+        val bmp = Bitmap.createBitmap(x1 - x0, y1 - y0, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        c.drawColor(Color.WHITE)
+        c.translate((qx - x0).toFloat(), (qy - y0).toFloat())
+        // Макет нарисован в единицах 300 dpi — масштабируем до 360.
+        c.scale(e.DPI / 300f, e.DPI / 300f)
+        c.translate(PAD, PAD)
+        drawForecast(c, w, city, footer, W / 2f - 2 * PAD, H / 2f - 2 * PAD)
+        return Quarter(bmp, x0 - e.MARGIN, y0 - e.MARGIN)
+    }
+
     private fun paint(size: Float, bold: Boolean = false, color: Int = Color.BLACK) = Paint().apply {
         isAntiAlias = true
         textSize = size

@@ -195,12 +195,18 @@ class MainActivity : ComponentActivity() {
         save()
         lifecycleScope.launch {
             val msg = withContext(Dispatchers.IO) {
+                val lan = LocalNet.wifi(this@MainActivity)
                 try {
-                    val a = IppClient(prefs.printerHost, prefs.ippPath, LocalNet.wifi(this@MainActivity)).getAttributes()
-                    val model = a["printer-make-and-model"]?.firstOrNull() ?: "?"
-                    val formats = a["document-format-supported"].orEmpty()
-                    val jpeg = if ("image/jpeg" in formats) "JPEG поддерживается ✓" else "JPEG НЕ найден в списке форматов"
-                    "Принтер: $model\n$jpeg\nФорматы: ${formats.joinToString()}"
+                    if (prefs.protocol == "escpr") {
+                        EscprClient(prefs.printerHost, lan).ping()
+                        "Принтер Epson на ${prefs.printerHost} отвечает ✓\nПечать через порт 9100 (ESC/P-R)"
+                    } else {
+                        val a = IppClient(prefs.printerHost, prefs.ippPath, lan).getAttributes()
+                        val model = a["printer-make-and-model"]?.firstOrNull() ?: "?"
+                        val formats = a["document-format-supported"].orEmpty()
+                        val jpeg = if ("image/jpeg" in formats) "JPEG поддерживается ✓" else "JPEG НЕ найден в списке форматов"
+                        "Принтер: $model\n$jpeg\nФорматы: ${formats.joinToString()}"
+                    }
                 } catch (e: Exception) {
                     "Принтер не отвечает: ${e.message}"
                 }
@@ -292,6 +298,7 @@ class MainActivity : ComponentActivity() {
                     prefs.printerName = f.name
                     prefs.printerHost = f.host
                     prefs.ippPath = f.path
+                    prefs.protocol = f.protocol
                     host.setText(f.host)
                     path.setText(f.path)
                     refresh()

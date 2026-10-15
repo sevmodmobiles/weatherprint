@@ -42,20 +42,24 @@ object PrintJob {
         }
 
         val lan = LocalNet.wifi(ctx)
-        var ipp = IppClient(p.printerHost, p.ippPath, lan)
 
-        // Принтер отвечает — значит, телефон дома в той же сети.
+        /** Принтер отвечает — значит, телефон дома в той же сети. */
+        fun ping() {
+            if (p.protocol == "escpr") EscprClient(p.printerHost, lan).ping()
+            else IppClient(p.printerHost, p.ippPath, lan).getAttributes(timeoutMs = 3000)
+        }
+
         try {
-            ipp.getAttributes(timeoutMs = 3000)
+            ping()
         } catch (e: Exception) {
             // Возможно, роутер выдал принтеру новый IP — ищем его по имени.
             val again = if (p.printerName.isNotEmpty()) PrinterDiscovery.findByName(ctx, p.printerName) else null
             if (again == null) return Outcome.SKIPPED to "Принтер не найден в сети (${e.message})"
             p.printerHost = again.host
             p.ippPath = again.path
-            ipp = IppClient(again.host, again.path, lan)
+            p.protocol = again.protocol
             try {
-                ipp.getAttributes(timeoutMs = 3000)
+                ping()
             } catch (e2: Exception) {
                 return Outcome.SKIPPED to "Принтер не отвечает (${e2.message})"
             }
@@ -69,10 +73,18 @@ object PrintJob {
 
         val side = if (p.backSide) "оборот" else "лицо"
         val footer = "Лист ${p.sheetIndex + 1}/${p.sheets} · проход ${p.pass + 1}/8 ($side)"
-        val jpeg = PageRenderer.renderJpeg(weather, p.quadrant, p.city, footer)
-
         try {
-            ipp.printJob(jpeg, "image/jpeg", "Погода $today")
+            if (p.protocol == "escpr") {
+                val q = PageRenderer.renderQuarter(weather, p.quadrant, p.city, footer)
+                try {
+                    EscprClient(p.printerHost, lan).print(q.bitmap, q.x, q.y)
+                } finally {
+                    q.bitmap.recycle()
+                }
+            } else {
+                val jpeg = PageRenderer.renderJpeg(weather, p.quadrant, p.city, footer)
+                IppClient(p.printerHost, p.ippPath, lan).printJob(jpeg, "image/jpeg", "Погода $today")
+            }
         } catch (e: Exception) {
             val msg = "Ошибка печати: ${e.message}"
             p.lastResult = msg

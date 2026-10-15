@@ -25,6 +25,11 @@ class Prefs(context: Context) {
         get() = sp.getString("path", "/ipp/print")!!
         set(v) = sp.edit().putString("path", v.trim().let { if (it.startsWith("/")) it else "/$it" }).apply()
 
+    /** Как печатать: "ipp" (AirPrint/Mopria) или "escpr" (Epson без AirPrint, порт 9100). */
+    var protocol: String
+        get() = sp.getString("protocol", "ipp")!!
+        set(v) = sp.edit().putString("protocol", v).apply()
+
     var city: String
         get() = sp.getString("city", "Санкт-Петербург")!!
         set(v) = sp.edit().putString("city", v.trim()).apply()

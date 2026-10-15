@@ -30,11 +30,20 @@ import kotlin.coroutines.resume
  * 1. mDNS/Bonjour (служба _ipp._tcp) — так же их находят AirPrint и Mopria.
  * 2. Перебор адресов своей подсети на порту 631 (IPP). Нужен, когда роутер не пропускает
  *    multicast — например, принтер в Wi-Fi 2.4 ГГц, а телефон в 5 ГГц.
+ *    Epson без AirPrint (порт 631 закрыт, 9100 открыт, веб-интерфейс Epson) тоже подходит —
+ *    на него печатаем через [EscprClient].
  * Разрешение на геолокацию не нужно.
  */
 object PrinterDiscovery {
 
-    data class Found(val name: String, val host: String, val path: String, val model: String)
+    /** [protocol]: "ipp" — AirPrint/Mopria, "escpr" — Epson без AirPrint, печать на порт 9100. */
+    data class Found(
+        val name: String,
+        val host: String,
+        val path: String,
+        val model: String,
+        val protocol: String = "ipp",
+    )
 
     /** Найденные принтеры и отчёт о поиске — чтобы было понятно, почему ничего не нашлось. */
     data class Result(val found: List<Found>, val report: String)
@@ -180,7 +189,13 @@ object PrinterDiscovery {
 
         val alive = states.filterValues { m -> m.values.any { it != Port.SILENT } }.keys
         val ipp = states.filterValues { it[IPP_PORT] == Port.OPEN }.keys
-        val found = ipp.map { ip -> async { probe(ip, lan) } }.awaitAll().filterNotNull()
+        val byIpp = ipp.map { ip -> async { probe(ip, lan) } }.awaitAll().filterNotNull()
+        // Epson без AirPrint: порт 631 закрыт, но открыт 9100 и веб-интерфейс говорит «EPSON».
+        val epsonRaw = (states.filterValues { it[9100] == Port.OPEN && it[80] == Port.OPEN }.keys - ipp)
+            .map { ip -> async { epsonTitle(ip, lan)?.let { ip to it } } }.awaitAll().filterNotNull()
+        val found = byIpp + epsonRaw.map { (ip, title) ->
+            Found(title, ip, "", "$title (печать Epson ESC/P-R)", protocol = "escpr")
+        }
 
         // Роутер: отвечает ли он хоть на что-то — через Wi-Fi и через сеть по умолчанию.
         val gw = LocalNet.gateway(ctx, lan)
@@ -202,9 +217,7 @@ object PrinterDiscovery {
             append("Порт 631 (IPP) открыт: ${if (ipp.isEmpty()) "ни у кого" else ipp.joinToString()}.\n")
             val raw = states.filterValues { it[9100] == Port.OPEN }.keys - ipp
             if (raw.isNotEmpty()) append("Порт 9100 (печать) открыт: ${raw.joinToString()}.\n")
-            val epsonWeb = (states.filterValues { it[80] == Port.OPEN }.keys - ipp)
-                .filter { looksLikeEpson(it, lan) }
-            if (epsonWeb.isNotEmpty()) append("Веб-интерфейс Epson: ${epsonWeb.joinToString()} — принтер есть, но IPP не отвечает.\n")
+            if (epsonRaw.isNotEmpty()) append("Epson без AirPrint: ${epsonRaw.joinToString { it.first }} — печать через порт 9100.\n")
             val errors = probes.values.flatMap { it.values }.mapNotNull { it.error }
                 .groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(3)
             if (errors.isNotEmpty()) append("Ошибки соединений: ${errors.joinToString { "${it.key} ×${it.value}" }}.\n")
@@ -234,18 +247,28 @@ object PrinterDiscovery {
         return code ?: e.javaClass.simpleName
     }
 
-    private fun looksLikeEpson(ip: String, lan: Network?): Boolean = runCatching {
+    /** Заголовок веб-интерфейса, если это Epson («EPSON L805 Series»), иначе null. */
+    private fun epsonTitle(ip: String, lan: Network?): String? = runCatching {
         val url = URL("http://$ip/")
         val conn = (lan?.openConnection(url) ?: url.openConnection()) as HttpURLConnection
         try {
             conn.connectTimeout = 2000; conn.readTimeout = 2000
             val text = (if (conn.responseCode < 400) conn.inputStream else conn.errorStream)
                 ?.use { it.readBytes().decodeToString() }.orEmpty()
-            text.contains("EPSON", ignoreCase = true) || conn.getHeaderField("Server").orEmpty().contains("EPSON", true)
+            val isEpson = text.contains("EPSON", ignoreCase = true) ||
+                conn.getHeaderField("Server").orEmpty().contains("EPSON", ignoreCase = true)
+            if (!isEpson) return@runCatching null
+            val title = Regex("<title>(.*?)</title>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+                .find(text)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() && it.length < 60 }
+            when {
+                title == null -> "EPSON"
+                title.contains("EPSON", ignoreCase = true) -> title
+                else -> "EPSON $title"
+            }
         } finally {
             conn.disconnect()
         }
-    }.getOrDefault(false)
+    }.getOrNull()
 
     /** Спрашивает у узла атрибуты IPP по типичным путям. Ответил — значит, это принтер. */
     private fun probe(ip: String, lan: Network?): Found? {
