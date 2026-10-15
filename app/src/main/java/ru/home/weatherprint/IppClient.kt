@@ -27,6 +27,8 @@ class IppClient(private val host: String, private val path: String) {
         attr(out, 0x44, "", "document-format-supported")
         attr(out, 0x44, "", "printer-state")
         attr(out, 0x44, "", "media-supported")
+        attr(out, 0x44, "", "printer-name")
+        attr(out, 0x44, "", "printer-info")
         out.writeByte(0x03)
         val resp = post(body.toByteArray(), timeoutMs)
         checkStatus(resp)

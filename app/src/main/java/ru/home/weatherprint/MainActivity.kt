@@ -269,7 +269,10 @@ class MainActivity : ComponentActivity() {
             if (list.isEmpty()) {
                 android.app.AlertDialog.Builder(this@MainActivity)
                     .setTitle("Принтер не найден")
-                    .setMessage("Проверьте, что телефон подключён к домашнему Wi-Fi, а принтер включён и подключён к той же сети.")
+                    .setMessage(
+                        "Проверьте, что телефон подключён к домашнему Wi-Fi, а принтер включён и подключён к той же сети.\n\n" +
+                            "Если не помогло — посмотрите IP принтера в списке устройств роутера и введите его вручную."
+                    )
                     .setPositiveButton("OK", null)
                     .show()
                 return@launch
