@@ -56,7 +56,7 @@ class WeatherView(context: Context) : View(context) {
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)
         val screenH = resources.displayMetrics.heightPixels
-        setMeasuredDimension(w, (screenH * 0.55f).toInt())
+        setMeasuredDimension(w, (screenH * 0.48f).toInt())
     }
 
     override fun onDraw(c: Canvas) {
