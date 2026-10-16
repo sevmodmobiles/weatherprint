@@ -67,6 +67,14 @@ class Prefs(context: Context) {
         get() = sp.getString("lastPrintDate", "")!!
         set(v) = sp.edit().putString("lastPrintDate", v).apply()
 
+    /** Время последней успешной печати, «yyyy-MM-ddTHH:mm»; пусто — ещё не печатали. */
+    var lastPrintAt: String
+        get() = sp.getString("lastPrintAt", null)
+            // Из старых версий — достаём из текста «Напечатано 2026-10-16 в 06:00 (…)»
+            ?: Regex("Напечатано (\\d{4}-\\d{2}-\\d{2}) в (\\d{2}:\\d{2})").find(lastResult)
+                ?.let { "${it.groupValues[1]}T${it.groupValues[2]}" }.orEmpty()
+        set(v) = sp.edit().putString("lastPrintAt", v).apply()
+
     var lastResult: String
         get() = sp.getString("lastResult", "Ещё не печатали")!!
         set(v) = sp.edit().putString("lastResult", v).apply()

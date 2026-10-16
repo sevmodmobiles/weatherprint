@@ -162,12 +162,24 @@ class MainActivity : BaseActivity() {
         printerTitle.text = prefs.printerModel.ifEmpty { prefs.printerName }.ifEmpty { "Принтер не выбран" }
         printerArt.showFor(this, prefs)
         if (prefs.printerName.isEmpty()) printerStatus.text = "Нажмите, чтобы найти принтер в сети"
-        lastPrint.text = "Последняя печать: ${prefs.lastResult}"
+        lastPrint.text = "Последняя печать: " + lastPrintText()
 
         // Бумага
         val paper = Paper(this)
         reloadCard.visibility = if (paper.awaitingReload) View.VISIBLE else View.GONE
         if (paper.awaitingReload) reloadText.text = paper.reloadInstruction(manual = false)
+    }
+
+    /** «сегодня в 06:00», «вчера в 06:00», «14 октября в 06:00» или «ещё не было». */
+    private fun lastPrintText(): String {
+        val at = runCatching { java.time.LocalDateTime.parse(prefs.lastPrintAt) }.getOrNull() ?: return "ещё не было"
+        val today = java.time.LocalDate.now()
+        val day = when (at.toLocalDate()) {
+            today -> "сегодня"
+            today.minusDays(1) -> "вчера"
+            else -> at.format(java.time.format.DateTimeFormatter.ofPattern("d MMMM", java.util.Locale("ru")))
+        }
+        return "$day в ${at.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))}"
     }
 
     private fun pickTime() {

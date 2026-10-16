@@ -96,6 +96,7 @@ object PrintJob {
 
         // Успех — двигаем счётчик
         p.lastPrintDate = today
+        p.lastPrintAt = java.time.LocalDateTime.now().withSecond(0).withNano(0).toString().take(16)
         val time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))
         p.lastResult = "Напечатано $today в $time ($footer)"
         paper.printed()
