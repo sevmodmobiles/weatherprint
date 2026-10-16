@@ -156,7 +156,7 @@ class PrinterActivity : BaseActivity() {
             val r = withContext(Dispatchers.Default) {
                 runCatching {
                     val wx = withContext(Dispatchers.IO) { WeatherApi.fetch(prefs.lat, prefs.lon) }
-                    val pv = PageRenderer.renderPreview(wx, prefs.city, PrintJob.footerText(prefs))
+                    val pv = PageRenderer.renderPreview(wx, prefs.city, PrintJob.footerText(Paper(this@PrinterActivity)))
                     pv to InkCheck.analyze(pv.bitmap, pv.contentTop, pv.contentBottom)
                 }
             }
@@ -175,7 +175,7 @@ class PrinterActivity : BaseActivity() {
                 background = Ui.rounded(Color.WHITE, dpf(8f), dp(1), Ui.LINE)
                 setPadding(dp(1), dp(1), dp(1), dp(1))
             })
-            label("Так прогноз выйдет на четверти листа (${PrintJob.footerText(prefs)}).", box, 13f, Ui.SUB)
+            label("Так прогноз выйдет на четверти листа (${PrintJob.footerText(Paper(this@PrinterActivity))}).", box, 13f, Ui.SUB)
                 .setPadding(0, dp(8), 0, dp(12))
             label("Чернила (оценка)", box, 16f, bold = true)
             val sb = android.text.SpannableStringBuilder()

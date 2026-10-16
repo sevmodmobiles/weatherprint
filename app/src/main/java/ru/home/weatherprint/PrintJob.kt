@@ -36,7 +36,8 @@ object PrintJob {
         val p = Prefs(ctx)
         val today = LocalDate.now().toString()
 
-        if (p.awaitingReload) return Outcome.SKIPPED to "Ждём перекладки бумаги"
+        val paper = Paper(ctx)
+        val quarter = paper.next ?: return Outcome.SKIPPED to "Ждём перекладки бумаги"
         if (!force) {
             if (p.lastPrintDate == today) return Outcome.SKIPPED to "Сегодня уже печатали"
             if (!p.scheduleEnabled) return Outcome.SKIPPED to "Печать по расписанию выключена"
@@ -74,17 +75,17 @@ object PrintJob {
             return Outcome.FAILED to "Не удалось получить погоду: ${e.message}"
         }
 
-        val footer = footerText(p)
+        val footer = footerText(paper)
         try {
             if (p.protocol == "escpr") {
-                val q = PageRenderer.renderQuarter(weather, p.quadrant, p.city, footer)
+                val q = PageRenderer.renderQuarter(weather, quarter % 4, p.city, footer)
                 try {
                     EscprClient(p.printerHost, lan).print(q.bitmap, q.x, q.y)
                 } finally {
                     q.bitmap.recycle()
                 }
             } else {
-                val jpeg = PageRenderer.renderJpeg(weather, p.quadrant, p.city, footer)
+                val jpeg = PageRenderer.renderJpeg(weather, quarter % 4, p.city, footer)
                 IppClient(p.printerHost, p.ippPath, lan).printJob(jpeg, "image/jpeg", "Погода $today")
             }
         } catch (e: Exception) {
@@ -97,30 +98,19 @@ object PrintJob {
         p.lastPrintDate = today
         val time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))
         p.lastResult = "Напечатано $today в $time ($footer)"
-        p.sheetIndex = p.sheetIndex + 1
-        if (p.sheetIndex >= p.sheets) {
-            p.sheetIndex = 0
-            p.pass = p.pass + 1
-            p.awaitingReload = true
-            when {
-                p.pass >= 8 -> {
-                    p.pass = 0
-                    notify(ctx, "Бумага израсходована полностью",
-                        "Все ${p.sheets} листов исписаны с двух сторон. Заложите новую пачку и нажмите «Бумага заложена».")
-                }
-                p.pass == 4 -> notify(ctx, "Переверните пачку",
-                    "Лицевая сторона заполнена. Достаньте листы, переверните пачку чистой стороной и нажмите «Бумага заложена».")
-                else -> notify(ctx, "Положите листы обратно",
-                    "Проход ${p.pass} из 8 завершён. Достаньте листы из выходного лотка и положите обратно той же стороной, не поворачивая.")
-            }
+        paper.printed()
+        if (paper.awaitingReload) {
+            val (title, text) = paper.reloadNotice()
+            notify(ctx, title, text)
         }
         return Outcome.PRINTED to p.lastResult
     }
 
-    /** Подпись внизу прогноза: какой лист и проход. */
-    fun footerText(p: Prefs): String {
-        val side = if (p.backSide) "оборот" else "лицо"
-        return "Лист ${p.sheetIndex + 1}/${p.sheets} · проход ${p.pass + 1}/8 ($side)"
+    /** Подпись внизу прогноза: какая четверть и сколько листов ещё в лотке. */
+    fun footerText(paper: Paper): String {
+        val q = paper.next ?: return ""
+        val side = if (q >= 4) "оборот" else "лицо"
+        return "Четверть ${q + 1}/8 ($side) · в лотке ${paper.tray.size} л."
     }
 
     private const val CHANNEL = "paper"

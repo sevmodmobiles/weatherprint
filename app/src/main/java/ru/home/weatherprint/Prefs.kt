@@ -62,21 +62,6 @@ class Prefs(context: Context) {
         get() = sp.getInt("printMinutes", sp.getInt("fromHour", 17) * 60)
         set(v) = sp.edit().putInt("printMinutes", v.coerceIn(0, 24 * 60 - 1)).apply()
 
-    /** Номер листа в текущем проходе, 0 .. sheets-1. */
-    var sheetIndex: Int
-        get() = sp.getInt("sheetIndex", 0)
-        set(v) = sp.edit().putInt("sheetIndex", v).apply()
-
-    /** Номер прохода, 0..7. 0–3 лицевая сторона, 4–7 оборот. */
-    var pass: Int
-        get() = sp.getInt("pass", 0)
-        set(v) = sp.edit().putInt("pass", v).apply()
-
-    /** true — пачка закончилась, ждём, пока пользователь переложит бумагу и нажмёт кнопку. */
-    var awaitingReload: Boolean
-        get() = sp.getBoolean("awaitingReload", false)
-        set(v) = sp.edit().putBoolean("awaitingReload", v).apply()
-
     /** Дата последней печати, yyyy-MM-dd. */
     var lastPrintDate: String
         get() = sp.getString("lastPrintDate", "")!!
@@ -85,8 +70,4 @@ class Prefs(context: Context) {
     var lastResult: String
         get() = sp.getString("lastResult", "Ещё не печатали")!!
         set(v) = sp.edit().putString("lastResult", v).apply()
-
-    val quadrant: Int get() = pass % 4
-    val backSide: Boolean get() = pass >= 4
-    val daysLeft: Int get() = (7 - pass) * sheets + (sheets - sheetIndex)
 }

@@ -71,7 +71,7 @@ class MainActivity : BaseActivity() {
         label("Пора переложить бумагу", reloadCard, 17f, Ui.WARN, bold = true)
         reloadText = label("", reloadCard, 15f).apply { setPadding(0, dp(6), 0, 0) }
         button("Бумага заложена", reloadCard) {
-            prefs.awaitingReload = false
+            Paper(this).reload()
             toast("Продолжаем печать")
             refresh()
         }
@@ -165,8 +165,9 @@ class MainActivity : BaseActivity() {
         lastPrint.text = "Последняя печать: ${prefs.lastResult}"
 
         // Бумага
-        reloadCard.visibility = if (prefs.awaitingReload) View.VISIBLE else View.GONE
-        if (prefs.awaitingReload) reloadText.text = PaperText.reloadInstruction(prefs)
+        val paper = Paper(this)
+        reloadCard.visibility = if (paper.awaitingReload) View.VISIBLE else View.GONE
+        if (paper.awaitingReload) reloadText.text = paper.reloadInstruction(manual = false)
     }
 
     private fun pickTime() {
@@ -262,23 +263,5 @@ class MainActivity : BaseActivity() {
                 updateBtn.isEnabled = true
             }
         }
-    }
-}
-
-/** Тексты про бумагу — общие для главного экрана и настроек. */
-object PaperText {
-    fun reloadInstruction(p: Prefs): String = when (p.pass) {
-        0 -> "Пачка заполнена полностью. Выньте её и заложите ${p.sheets} новых листов, затем нажмите «Бумага заложена»."
-        4 -> "Лицевая сторона заполнена.\n1. Достаньте все листы из выходного лотка.\n" +
-            "2. Переверните пачку, как страницу книги, чистой стороной к себе.\n3. Положите в задний лоток и нажмите «Бумага заложена»."
-        else -> "Проход ${p.pass} завершён.\n1. Достаньте все листы из выходного лотка.\n" +
-            "2. Положите обратно в задний лоток той же стороной, ничего не поворачивая.\n" +
-            "3. Нажмите «Бумага заложена». Следующие прогнозы лягут в четверть №${p.pass + 1}."
-    }
-
-    fun status(p: Prefs): String {
-        val side = if (p.backSide) "оборот" else "лицевая сторона"
-        return "Проход ${p.pass + 1} из 8 ($side), лист ${p.sheetIndex + 1} из ${p.sheets}.\n" +
-            "Бумаги хватит примерно на ${p.daysLeft} дн."
     }
 }
