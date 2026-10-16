@@ -21,6 +21,11 @@ class Prefs(context: Context) {
         get() = sp.getString("printerName", "")!!
         set(v) = sp.edit().putString("printerName", v).apply()
 
+    /** Модель принтера для показа («Epson L805»); пусто — ещё не определяли. */
+    var printerModel: String
+        get() = sp.getString("printerModel", "")!!
+        set(v) = sp.edit().putString("printerModel", v).apply()
+
     var ippPath: String
         get() = sp.getString("path", "/ipp/print")!!
         set(v) = sp.edit().putString("path", v.trim().let { if (it.startsWith("/")) it else "/$it" }).apply()

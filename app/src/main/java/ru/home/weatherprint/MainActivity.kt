@@ -33,6 +33,7 @@ class MainActivity : BaseActivity() {
     private var pendingRelease: Updater.Release? = null
     private var updating = false
 
+    private lateinit var printerArt: PrinterArt
     private lateinit var printerTitle: TextView
     private lateinit var printerStatus: TextView
     private lateinit var lastPrint: TextView
@@ -92,7 +93,8 @@ class MainActivity : BaseActivity() {
         pc.background = Ui.ripple(Ui.rounded(Ui.CARD, dpf(20f)), dpf(20f))
         pc.setOnClickListener { startActivity(Intent(this, PrinterActivity::class.java)) }
         val pRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        pRow.addView(iconBadge(Icon.PRINTER, Ui.ACCENT, Ui.ACCENT_SOFT, 48))
+        printerArt = PrinterArt(this).apply { background = Ui.rounded(Ui.BG, dpf(14f)); setPadding(dp(4), dp(4), dp(4), dp(4)) }
+        pRow.addView(printerArt, LinearLayout.LayoutParams(dp(72), dp(56)))
         val pCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), 0, dp(8), 0) }
         printerTitle = TextView(this).apply {
             textSize = 17f; setTextColor(Ui.TEXT); setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL))
@@ -103,7 +105,7 @@ class MainActivity : BaseActivity() {
         pRow.addView(pCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         pRow.addView(IconView(this).apply { icon = Icon.CHEVRON; color = Ui.OFF }, LinearLayout.LayoutParams(dp(22), dp(22)))
         pc.addView(pRow)
-        lastPrint = label("", pc, 13f, Ui.SUB).apply { setPadding(dp(62), dp(10), 0, 0) }
+        lastPrint = label("", pc, 13f, Ui.SUB).apply { setPadding(dp(86), dp(10), 0, 0) }
 
         // Печать по расписанию
         val sc = card()
@@ -157,7 +159,8 @@ class MainActivity : BaseActivity() {
         nextPrint.text = if (prefs.scheduleEnabled) "Следующая: ${PrintSchedule.describe(this)}" else "Выключено"
 
         // Принтер
-        printerTitle.text = prefs.printerName.ifEmpty { "Принтер не выбран" }
+        printerTitle.text = prefs.printerModel.ifEmpty { prefs.printerName }.ifEmpty { "Принтер не выбран" }
+        printerArt.showFor(this, prefs)
         if (prefs.printerName.isEmpty()) printerStatus.text = "Нажмите, чтобы найти принтер в сети"
         lastPrint.text = "Последняя печать: ${prefs.lastResult}"
 
@@ -176,9 +179,9 @@ class MainActivity : BaseActivity() {
         }, m / 60, m % 60, true).show()
     }
 
-    /** Проверяет, отвечает ли принтер, — для строки состояния на карточке. */
+    /** Проверяет, отвечает ли принтер, — для строки состояния на карточке. Заодно один раз определяет модель и картинку. */
     private fun checkPrinter() {
-        if (prefs.printerName.isEmpty() && prefs.protocol != "escpr") return
+        if (prefs.printerName.isEmpty()) return
         printerStatus.text = statusText(null, "Проверяю связь…")
         lifecycleScope.launch {
             val ok = withContext(Dispatchers.IO) {
@@ -189,6 +192,10 @@ class MainActivity : BaseActivity() {
                 }.isSuccess
             }
             printerStatus.text = statusText(ok, if (ok) "В сети · ${prefs.printerHost}" else "Не в сети · ${prefs.printerHost}")
+            if (ok && prefs.printerModel.isEmpty()) {
+                withContext(Dispatchers.IO) { PrinterInfo.identify(this@MainActivity) }
+                refresh()
+            }
         }
     }
 

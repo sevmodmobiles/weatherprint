@@ -19,6 +19,7 @@ import kotlinx.coroutines.withContext
 /** Экран принтера: состояние, печать, предпросмотр, обслуживание и подключение. */
 class PrinterActivity : BaseActivity() {
 
+    private lateinit var art: PrinterArt
     private lateinit var nameText: TextView
     private lateinit var infoText: TextView
     private lateinit var statusLine: TextView
@@ -45,17 +46,15 @@ class PrinterActivity : BaseActivity() {
     private fun build() {
         // Шапка: принтер и его состояние
         val head = card(pad = 20)
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        row.addView(iconBadge(Icon.PRINTER, Ui.ACCENT, Ui.ACCENT_SOFT, 56))
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), 0, 0, 0) }
+        art = PrinterArt(this).apply { background = Ui.rounded(Ui.BG, dpf(16f)); setPadding(dp(16), dp(12), dp(16), dp(12)) }
+        head.addView(art, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(150)))
         nameText = TextView(this).apply {
-            textSize = 19f; setTextColor(Ui.TEXT); setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL))
+            textSize = 22f; setTextColor(Ui.TEXT); setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL))
+            gravity = Gravity.CENTER; setPadding(0, dp(14), 0, 0)
         }
-        infoText = TextView(this).apply { textSize = 14f; setTextColor(Ui.SUB); setPadding(0, dp(2), 0, 0) }
-        statusLine = TextView(this).apply { textSize = 14f; setTextColor(Ui.SUB); setPadding(0, dp(4), 0, 0) }
-        col.addView(nameText); col.addView(infoText); col.addView(statusLine)
-        row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        head.addView(row)
+        infoText = TextView(this).apply { textSize = 14f; setTextColor(Ui.SUB); gravity = Gravity.CENTER; setPadding(0, dp(2), 0, 0) }
+        statusLine = TextView(this).apply { textSize = 14f; setTextColor(Ui.SUB); gravity = Gravity.CENTER; setPadding(0, dp(4), 0, 0) }
+        head.addView(nameText); head.addView(infoText); head.addView(statusLine)
         detailsText = label("", head, 13f, Ui.SUB).apply { setPadding(0, dp(10), 0, 0); visibility = View.GONE }
         button("Проверить связь", head, filled = false) { checkPrinter(details = true) }
 
@@ -84,7 +83,8 @@ class PrinterActivity : BaseActivity() {
     }
 
     private fun refresh() {
-        nameText.text = prefs.printerName.ifEmpty { "Принтер не выбран" }
+        nameText.text = prefs.printerModel.ifEmpty { prefs.printerName }.ifEmpty { "Принтер не выбран" }
+        art.showFor(this, prefs)
         infoText.text = when {
             prefs.printerName.isEmpty() -> "Найдите принтер в разделе «Подключение»"
             escpr -> "Epson · ESC/P-R, порт 9100 · ${prefs.printerHost}"
@@ -121,6 +121,10 @@ class PrinterActivity : BaseActivity() {
             }
             val ok = r.isSuccess
             statusLine.text = statusText(ok, if (ok) "В сети" else "Не отвечает")
+            if (ok && prefs.printerName.isNotEmpty() && (details || prefs.printerModel.isEmpty())) {
+                withContext(Dispatchers.IO) { PrinterInfo.identify(this@PrinterActivity) }
+                refresh()
+            }
             if (details || !ok) {
                 detailsText.text = r.getOrElse { "Ошибка: ${it.message}" }
                 detailsText.visibility = View.VISIBLE
@@ -275,7 +279,10 @@ class PrinterActivity : BaseActivity() {
                     .show()
                 return@launch
             }
-            val labels = list.map { "${it.model}\n${it.host}" }.toTypedArray()
+            val labels = list.map {
+                val how = if (it.protocol == "escpr") "Epson ESC/P-R" else "AirPrint / IPP"
+                "${PrinterInfo.cleanModel(it.model)}\n${it.host} · $how"
+            }.toTypedArray()
             android.app.AlertDialog.Builder(this@PrinterActivity)
                 .setTitle("Выберите принтер")
                 .setItems(labels) { _, i ->
@@ -284,10 +291,15 @@ class PrinterActivity : BaseActivity() {
                     prefs.printerHost = f.host
                     prefs.ippPath = f.path
                     prefs.protocol = f.protocol
+                    prefs.printerModel = PrinterInfo.cleanModel(f.model)
                     host.setText(f.host)
                     path.setText(f.path)
-                    // Пересобираем экран: от способа печати зависит, доступно ли обслуживание
-                    recreate()
+                    lifecycleScope.launch {
+                        toast("Определяю модель принтера…")
+                        withContext(Dispatchers.IO) { PrinterInfo.identify(this@PrinterActivity) }
+                        // Пересобираем экран: от способа печати зависит, доступно ли обслуживание
+                        recreate()
+                    }
                 }
                 .show()
         }
