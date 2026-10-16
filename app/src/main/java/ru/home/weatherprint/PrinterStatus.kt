@@ -46,6 +46,13 @@ object PrinterStatus {
         return null
     }
 
+    /** Название модели по SNMP: hrDeviceDescr, затем sysDescr («EPSON L805 Series»). */
+    fun modelName(host: String, lan: Network?): String? =
+        listOf("1.3.6.1.2.1.25.3.2.1.3.1", "1.3.6.1.2.1.1.1.0").firstNotNullOfOrNull { oid ->
+            snmpGet(host, oid, lan)?.toString(Charsets.UTF_8)?.trim()
+                ?.takeIf { s -> s.length in 3..80 && s.any { it.isDigit() } && s.all { it.code in 32..126 } }
+        }
+
     fun hrPrinterStatus(host: String, lan: Network?): Int? {
         val v = snmpGet(host, HR_PRINTER_STATUS, lan) ?: return null
         if (v.isEmpty() || v.size > 4) return null

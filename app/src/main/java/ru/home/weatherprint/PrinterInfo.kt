@@ -34,6 +34,9 @@ object PrinterInfo {
         .replace(Regex("^BROTHER\\b"), "Brother")
         .trim()
 
+    /** Модель известна точно (есть номер), а не только марка. */
+    fun modelKnown(model: String) = model.any { it.isDigit() }
+
     /** Принтер с баками для чернил (Epson L / EcoTank, Canon G, HP Smart Tank, Brother DCP-T) — для иллюстрации. */
     fun isInkTank(model: String): Boolean =
         Regex("(?i)\\b(L\\d{3,5}|ET-?\\d+|EcoTank|Smart Tank|PIXMA G\\d+|DCP-T\\d+|MFC-T\\d+)\\b").containsMatchIn(model)
@@ -48,7 +51,9 @@ object PrinterInfo {
         iconFile(ctx).delete()
 
         if (p.protocol == "escpr") {
-            p.printerModel = cleanModel(p.printerName.ifEmpty { "Epson" })
+            // Веб-интерфейс часто называет принтер просто «EPSON» — точную модель спрашиваем по SNMP
+            val snmp = PrinterStatus.modelName(p.printerHost, lan)
+            p.printerModel = cleanModel(snmp ?: p.printerName.ifEmpty { "Epson" })
             // У части Epson картинка лежит в веб-интерфейсе; у L805 обычно нет — тогда будет иллюстрация.
             for (path in listOf("/PRESENTATION/AIRPRINT/PRINTER_128.PNG", "/PRESENTATION/AIRPRINT/PRINTER_512.PNG")) {
                 if (download(ctx, "http://${p.printerHost}$path", lan)) break

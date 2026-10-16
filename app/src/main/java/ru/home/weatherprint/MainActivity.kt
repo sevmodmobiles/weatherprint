@@ -192,8 +192,8 @@ class MainActivity : BaseActivity() {
                     else IppClient(prefs.printerHost, prefs.ippPath, lan).getAttributes(timeoutMs = 3000)
                 }.isSuccess
             }
-            printerStatus.text = statusText(ok, if (ok) "В сети · ${prefs.printerHost}" else "Не в сети · ${prefs.printerHost}")
-            if (ok && prefs.printerModel.isEmpty()) {
+            printerStatus.text = statusText(ok, if (ok) "В сети" else LocalNet.offlineReason(this@MainActivity, prefs.printerHost))
+            if (ok && !PrinterInfo.modelKnown(prefs.printerModel)) {
                 withContext(Dispatchers.IO) { PrinterInfo.identify(this@MainActivity) }
                 refresh()
             }

@@ -21,9 +21,7 @@ class PrinterActivity : BaseActivity() {
 
     private lateinit var art: PrinterArt
     private lateinit var nameText: TextView
-    private lateinit var infoText: TextView
     private lateinit var statusLine: TextView
-    private lateinit var detailsText: TextView
     private lateinit var host: EditText
     private lateinit var path: EditText
     private lateinit var pathBox: LinearLayout
@@ -55,11 +53,9 @@ class PrinterActivity : BaseActivity() {
             textSize = 22f; setTextColor(Ui.TEXT); setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL))
             gravity = Gravity.CENTER; setPadding(0, dp(14), 0, 0)
         }
-        infoText = TextView(this).apply { textSize = 14f; setTextColor(Ui.SUB); gravity = Gravity.CENTER; setPadding(0, dp(2), 0, 0) }
         statusLine = TextView(this).apply { textSize = 14f; setTextColor(Ui.SUB); gravity = Gravity.CENTER; setPadding(0, dp(4), 0, 0) }
-        head.addView(nameText); head.addView(infoText); head.addView(statusLine)
-        detailsText = label("", head, 13f, Ui.SUB).apply { setPadding(0, dp(10), 0, 0); visibility = View.GONE }
-        button("Проверить связь", head, filled = false) { checkPrinter(details = true) }
+        head.addView(nameText); head.addView(statusLine)
+        button("Проверить связь", head, filled = false) { checkPrinter(identify = true) }
 
         sectionTitle("Печать")
         val print = card(pad = 8)
@@ -94,11 +90,6 @@ class PrinterActivity : BaseActivity() {
     private fun refresh() {
         nameText.text = prefs.printerModel.ifEmpty { prefs.printerName }.ifEmpty { "Принтер не выбран" }
         art.showFor(this, prefs)
-        infoText.text = when {
-            prefs.printerName.isEmpty() -> "Найдите принтер в разделе «Подключение»"
-            escpr -> "Epson · ESC/P-R, порт 9100 · ${prefs.printerHost}"
-            else -> "AirPrint / IPP · ${prefs.printerHost}"
-        }
         if (host.text.toString() != prefs.printerHost) host.setText(prefs.printerHost)
         if (path.text.toString() != prefs.ippPath) path.setText(prefs.ippPath)
         pathBox.visibility = if (escpr) View.GONE else View.VISIBLE
@@ -109,34 +100,25 @@ class PrinterActivity : BaseActivity() {
         if (!escpr) prefs.ippPath = path.text.toString()
     }
 
-    private fun checkPrinter(details: Boolean = false) {
+    private fun checkPrinter(identify: Boolean = false) {
         saveConnection()
+        if (prefs.printerName.isEmpty()) {
+            statusLine.text = "Найдите принтер в разделе «Подключение»"
+            return
+        }
         statusLine.text = statusText(null, "Проверяю связь…")
         lifecycleScope.launch {
-            val r = withContext(Dispatchers.IO) {
+            val ok = withContext(Dispatchers.IO) {
                 runCatching {
                     val lan = LocalNet.route(this@PrinterActivity)
-                    if (escpr) {
-                        EscprClient(prefs.printerHost, lan).ping()
-                        "Печать на «родном» языке Epson через порт 9100."
-                    } else {
-                        val a = IppClient(prefs.printerHost, prefs.ippPath, lan).getAttributes()
-                        val model = a["printer-make-and-model"]?.firstOrNull() ?: "?"
-                        val formats = a["document-format-supported"].orEmpty()
-                        val jpeg = if ("image/jpeg" in formats) "JPEG поддерживается ✓" else "JPEG НЕ найден в списке форматов"
-                        "Модель: $model\n$jpeg\nФорматы: ${formats.joinToString()}"
-                    }
-                }
+                    if (escpr) EscprClient(prefs.printerHost, lan).ping()
+                    else IppClient(prefs.printerHost, prefs.ippPath, lan).getAttributes()
+                }.isSuccess
             }
-            val ok = r.isSuccess
-            statusLine.text = statusText(ok, if (ok) "В сети" else "Не отвечает")
-            if (ok && prefs.printerName.isNotEmpty() && (details || prefs.printerModel.isEmpty())) {
+            statusLine.text = statusText(ok, if (ok) "В сети" else LocalNet.offlineReason(this@PrinterActivity, prefs.printerHost))
+            if (ok && (identify || !PrinterInfo.modelKnown(prefs.printerModel))) {
                 withContext(Dispatchers.IO) { PrinterInfo.identify(this@PrinterActivity) }
                 refresh()
-            }
-            if (details || !ok) {
-                detailsText.text = r.getOrElse { "Ошибка: ${it.message}" }
-                detailsText.visibility = View.VISIBLE
             }
         }
     }

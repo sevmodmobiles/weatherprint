@@ -28,7 +28,8 @@ class PrinterArt(context: Context) : View(context) {
     fun showFor(ctx: Context, prefs: Prefs) {
         bitmap = PrinterInfo.icon(ctx)
         val model = prefs.printerModel.ifEmpty { prefs.printerName }
-        inkTank = model.isEmpty() || PrinterInfo.isInkTank(model)
+        // Модель неизвестна — для Epson без AirPrint скорее всего это принтер с баками (L-серия)
+        inkTank = PrinterInfo.isInkTank(model) || (!PrinterInfo.modelKnown(model) && prefs.protocol == "escpr")
     }
 
     override fun onDraw(c: Canvas) {
