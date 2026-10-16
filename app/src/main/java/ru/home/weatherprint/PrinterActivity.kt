@@ -138,7 +138,7 @@ class PrinterActivity : BaseActivity() {
             val r = withContext(Dispatchers.Default) {
                 runCatching {
                     val wx = withContext(Dispatchers.IO) { WeatherApi.fetch(prefs.lat, prefs.lon) }
-                    val pv = PageRenderer.renderPreview(wx, prefs.city, PrintJob.footerText(Paper(this@PrinterActivity)))
+                    val pv = PageRenderer.renderPreview(wx, prefs.city, PrintJob.footerText(Paper(this@PrinterActivity)), Phrases.forDay(wx, prefs.usedPhrases))
                     pv to InkCheck.analyze(pv.bitmap, pv.contentTop, pv.contentBottom)
                 }
             }

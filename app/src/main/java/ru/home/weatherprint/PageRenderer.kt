@@ -42,7 +42,7 @@ object PageRenderer {
     class Preview(val bitmap: Bitmap, val contentTop: Int, val contentBottom: Int)
 
     /** Та же четверть, что уходит на принтер, в уменьшенном виде ([scale] от 300 dpi). */
-    fun renderPreview(w: Weather, city: String, footer: String, scale: Float = 0.6f): Preview {
+    fun renderPreview(w: Weather, city: String, footer: String, phrase: String, scale: Float = 0.6f): Preview {
         val qw = W / 2f
         val qh = H / 2f
         val bmp = Bitmap.createBitmap((qw * scale).toInt(), (qh * scale).toInt(), Bitmap.Config.ARGB_8888)
@@ -50,11 +50,11 @@ object PageRenderer {
         c.drawColor(Color.WHITE)
         c.scale(scale, scale)
         c.translate(PAD, PAD)
-        drawForecast(c, w, city, footer, qw - 2 * PAD, qh - 2 * PAD)
+        drawForecast(c, w, city, footer, phrase, qw - 2 * PAD, qh - 2 * PAD)
         return Preview(bmp, (PAD * scale).toInt(), ((qh - PAD) * scale).toInt())
     }
 
-    fun renderJpeg(w: Weather, quadrant: Int, city: String, footer: String): ByteArray {
+    fun renderJpeg(w: Weather, quadrant: Int, city: String, footer: String, phrase: String): ByteArray {
         val bmp = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         c.drawColor(Color.WHITE)
@@ -65,7 +65,7 @@ object PageRenderer {
         val top = (quadrant / 2) * qh
         c.save()
         c.translate(left + PAD, top + PAD)
-        drawForecast(c, w, city, footer, qw - 2 * PAD, qh - 2 * PAD)
+        drawForecast(c, w, city, footer, phrase, qw - 2 * PAD, qh - 2 * PAD)
         c.restore()
 
         val out = ByteArrayOutputStream()
@@ -81,7 +81,7 @@ object PageRenderer {
      * Рисует ту же четверть, что и [renderJpeg], но сразу в 360 dpi и только её саму — для печати
      * через [EscprClient]. Участки за полями принтера (3 мм) обрезаются.
      */
-    fun renderQuarter(w: Weather, quadrant: Int, city: String, footer: String): Quarter {
+    fun renderQuarter(w: Weather, quadrant: Int, city: String, footer: String, phrase: String): Quarter {
         val e = EscprClient
         val qw = e.PAPER_W / 2
         val qh = e.PAPER_H / 2
@@ -100,7 +100,7 @@ object PageRenderer {
         // Макет нарисован в единицах 300 dpi — масштабируем до 360.
         c.scale(e.DPI / 300f, e.DPI / 300f)
         c.translate(PAD, PAD)
-        drawForecast(c, w, city, footer, W / 2f - 2 * PAD, H / 2f - 2 * PAD)
+        drawForecast(c, w, city, footer, phrase, W / 2f - 2 * PAD, H / 2f - 2 * PAD)
         return Quarter(bmp, x0 - e.MARGIN, y0 - e.MARGIN)
     }
 
@@ -111,7 +111,7 @@ object PageRenderer {
         typeface = Typeface.create(Typeface.SANS_SERIF, if (bold) Typeface.BOLD else Typeface.NORMAL)
     }
 
-    private fun drawForecast(c: Canvas, w: Weather, city: String, footer: String, fullW: Float, ch: Float) {
+    private fun drawForecast(c: Canvas, w: Weather, city: String, footer: String, phrase: String, fullW: Float, ch: Float) {
         // Цветной корешок во всю высоту карточки, текст — правее
         val ink = Paint().apply { isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeWidth = SPINE_LINE }
         INKS.forEachIndexed { i, (_, col) ->
@@ -122,11 +122,11 @@ object PageRenderer {
         val spineW = INKS.size * SPINE_LINE + (INKS.size - 1) * SPINE_GAP + SPINE_TEXT_GAP
         c.save()
         c.translate(spineW, 0f)
-        drawContent(c, w, city, footer, fullW - spineW, ch)
+        drawContent(c, w, city, footer, phrase, fullW - spineW, ch)
         c.restore()
     }
 
-    private fun drawContent(c: Canvas, w: Weather, city: String, footer: String, cw: Float, ch: Float) {
+    private fun drawContent(c: Canvas, w: Weather, city: String, footer: String, phrase: String, cw: Float, ch: Float) {
         val gray = Color.rgb(90, 90, 90)
         val line = Paint().apply { color = Color.rgb(170, 170, 170); strokeWidth = 4f }
 
@@ -175,7 +175,7 @@ object PageRenderer {
 
         // Фраза дня — между прогнозом на 3 дня и подвалом
         c.drawLine(0f, 1010f, cw, 1010f, line)
-        drawPhrase(c, Phrases.forDay(w), cw, 1040f, ch - 100f)
+        drawPhrase(c, phrase, cw, 1040f, ch - 100f)
 
         // Подвал: счётчик листа
         c.drawText(footer, 0f, ch - 40f, paint(36f, color = gray))

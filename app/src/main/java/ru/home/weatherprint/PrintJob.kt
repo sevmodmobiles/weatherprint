@@ -76,16 +76,17 @@ object PrintJob {
         }
 
         val footer = footerText(paper)
+        val phrase = Phrases.forDay(weather, p.usedPhrases)
         try {
             if (p.protocol == "escpr") {
-                val q = PageRenderer.renderQuarter(weather, quarter % 4, p.city, footer)
+                val q = PageRenderer.renderQuarter(weather, quarter % 4, p.city, footer, phrase)
                 try {
                     EscprClient(p.printerHost, lan).print(q.bitmap, q.x, q.y)
                 } finally {
                     q.bitmap.recycle()
                 }
             } else {
-                val jpeg = PageRenderer.renderJpeg(weather, quarter % 4, p.city, footer)
+                val jpeg = PageRenderer.renderJpeg(weather, quarter % 4, p.city, footer, phrase)
                 IppClient(p.printerHost, p.ippPath, lan).printJob(jpeg, "image/jpeg", "Погода $today")
             }
         } catch (e: Exception) {
@@ -100,6 +101,7 @@ object PrintJob {
         val time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))
         p.lastResult = "Напечатано $today в $time ($footer)"
         paper.printed()
+        if (Phrases.isWeather(phrase)) p.usedPhrases = p.usedPhrases + phrase
         if (paper.awaitingReload) {
             val (title, text) = paper.reloadNotice()
             notify(ctx, title, text)

@@ -75,6 +75,16 @@ class Prefs(context: Context) {
                 ?.let { "${it.groupValues[1]}T${it.groupValues[2]}" }.orEmpty()
         set(v) = sp.edit().putString("lastPrintAt", v).apply()
 
+    /** Погодные фразы, уже напечатанные в этом году, — чтобы не повторять. */
+    var usedPhrases: Set<String>
+        get() {
+            val year = java.time.LocalDate.now().year
+            if (sp.getInt("phrasesYear", 0) != year) return emptySet()
+            return sp.getString("phrasesUsed", "").orEmpty().split('\n').filter { it.isNotBlank() }.toSet()
+        }
+        set(v) = sp.edit().putInt("phrasesYear", java.time.LocalDate.now().year)
+            .putString("phrasesUsed", v.joinToString("\n")).apply()
+
     var lastResult: String
         get() = sp.getString("lastResult", "Ещё не печатали")!!
         set(v) = sp.edit().putString("lastResult", v).apply()
