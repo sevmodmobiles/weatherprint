@@ -27,6 +27,8 @@ class PrinterActivity : BaseActivity() {
     private lateinit var host: EditText
     private lateinit var path: EditText
     private lateinit var pathBox: LinearLayout
+    private lateinit var cleanSub: TextView
+    private var cleaningRunning = false
 
     private val escpr get() = prefs.protocol == "escpr"
 
@@ -36,6 +38,7 @@ class PrinterActivity : BaseActivity() {
         build()
         refresh()
         checkPrinter()
+        watchCleaning()
     }
 
     override fun onPause() {
@@ -67,7 +70,13 @@ class PrinterActivity : BaseActivity() {
         val m = card(pad = 8)
         val hint = if (escpr) null else "Только для Epson с печатью ESC/P-R"
         listItem(m, Icon.LINES, "Проверка дюз", hint ?: "Шаблон из линий каждого цвета", enabled = escpr) { maintenance(Maint.NOZZLE) }
-        listItem(m, Icon.DROP, "Прочистка печатающей головки", hint ?: "1–2 минуты, расходует чернила", enabled = escpr) { maintenance(Maint.CLEAN) }
+        cleanSub = listItem(m, Icon.DROP, "Прочистка печатающей головки", hint ?: "Можно несколько раз подряд", enabled = escpr) {
+            when {
+                !escpr -> toast("Доступно для Epson с печатью ESC/P-R (порт 9100)")
+                cleaningRunning -> confirmStopCleaning()
+                else -> cleaningDialog()
+            }
+        }
         listItem(m, Icon.PAPER, "Тест качества печати", "Целый лист: цвета, градиенты, линии, текст") { maintenance(Maint.TEST) }
 
         sectionTitle("Подключение")
@@ -254,6 +263,82 @@ class PrinterActivity : BaseActivity() {
                 Maint.TEST -> "Тестовая страница отправлена"
             })
         }
+    }
+
+    /** Диалог прочистки: сколько раз подряд и печатать ли потом проверку дюз. */
+    private fun cleaningDialog() {
+        saveConnection()
+        var times = 2
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(24), dp(8), dp(24), 0) }
+        label("Прочистка расходует чернила и занимает 1–2 минуты. Не выключайте принтер, пока она идёт — " +
+            "приложение само дождётся окончания каждой прочистки и сообщит, когда всё закончится.", box, 14f, Ui.SUB)
+        label("Сколько раз подряд", box, 15f, bold = true).setPadding(0, dp(16), 0, dp(8))
+        val chips = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val warn = label("", box, 12f, Ui.WARN)
+        box.removeView(warn)
+        val views = (1..5).map { n ->
+            TextView(this).apply {
+                text = "$n"; textSize = 17f; gravity = Gravity.CENTER
+                setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL))
+            }
+        }
+        fun paint() {
+            views.forEachIndexed { i, v ->
+                val on = i + 1 == times
+                v.setTextColor(if (on) Color.WHITE else Ui.ACCENT)
+                v.background = Ui.rounded(if (on) Ui.ACCENT else Ui.ACCENT_SOFT, dpf(22f))
+            }
+            warn.text = if (times > 3) "Epson не советует больше 2–3 прочисток подряд: если не помогает, " +
+                "лучше дать принтеру постоять несколько часов и повторить." else ""
+        }
+        views.forEachIndexed { i, v ->
+            v.setOnClickListener { times = i + 1; paint() }
+            chips.addView(v, LinearLayout.LayoutParams(0, dp(44), 1f).apply { if (i > 0) leftMargin = dp(8) })
+        }
+        box.addView(chips)
+        box.addView(warn)
+        warn.setPadding(0, dp(8), 0, 0)
+        val check = android.widget.CheckBox(this).apply {
+            text = "После прочистки напечатать проверку дюз"; isChecked = true; textSize = 15f
+            setPadding(dp(4), dp(12), 0, dp(12))
+        }
+        box.addView(check, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        label("Для проверки дюз положите в лоток отдельный чистый лист.", box, 12f, Ui.SUB)
+        paint()
+
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Прочистка головки")
+            .setView(box)
+            .setPositiveButton("Начать") { _, _ ->
+                CleaningWorker.start(this, times, check.isChecked)
+                toast(if (times == 1) "Прочистка запущена" else "Запущено $times прочистки подряд")
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
+    private fun confirmStopCleaning() {
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Идёт прочистка")
+            .setMessage("Остановить серию? Текущую прочистку принтер закончит сам, следующие запущены не будут.")
+            .setPositiveButton("Остановить") { _, _ -> CleaningWorker.cancel(this) }
+            .setNegativeButton("Продолжить", null)
+            .show()
+    }
+
+    /** Показывает в строке «Прочистка» ход серии, пока она идёт. */
+    private fun watchCleaning() {
+        androidx.work.WorkManager.getInstance(this).getWorkInfosForUniqueWorkLiveData(CleaningWorker.WORK)
+            .observe(this) { infos ->
+                val running = infos.firstOrNull { !it.state.isFinished }
+                cleaningRunning = running != null
+                cleanSub.text = when {
+                    !escpr -> "Только для Epson с печатью ESC/P-R"
+                    running != null -> (running.progress.getString("title") ?: "Идёт прочистка") + " · нажмите, чтобы остановить"
+                    else -> "Можно несколько раз подряд"
+                }
+                cleanSub.setTextColor(if (running != null) Ui.ACCENT else Ui.SUB)
+            }
     }
 
     private fun findPrinter() {
