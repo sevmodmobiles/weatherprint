@@ -173,8 +173,35 @@ object PageRenderer {
             y += 115f
         }
 
+        // Фраза дня — между прогнозом на 3 дня и подвалом
+        c.drawLine(0f, 1010f, cw, 1010f, line)
+        drawPhrase(c, Phrases.forDay(w), cw, 1040f, ch - 100f)
+
         // Подвал: счётчик листа
         c.drawText(footer, 0f, ch - 40f, paint(36f, color = gray))
+    }
+
+    /** Фраза курсивом, по центру области [top]..[bottom]; если длинная — шрифт уменьшается. */
+    private fun drawPhrase(c: Canvas, text: String, cw: Float, top: Float, bottom: Float) {
+        val tp = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(55, 55, 55)
+            typeface = Typeface.create(Typeface.SERIF, Typeface.ITALIC)
+        }
+        val quoted = "«${text.trimEnd('.')}»"
+        var size = 54f
+        var layout: android.text.StaticLayout
+        do {
+            size -= 4f
+            tp.textSize = size
+            layout = android.text.StaticLayout.Builder.obtain(quoted, 0, quoted.length, tp, cw.toInt())
+                .setAlignment(android.text.Layout.Alignment.ALIGN_CENTER)
+                .setLineSpacing(0f, 1.1f)
+                .build()
+        } while (layout.height > bottom - top && size > 30f)
+        c.save()
+        c.translate(0f, top + ((bottom - top) - layout.height).coerceAtLeast(0f) / 2)
+        layout.draw(c)
+        c.restore()
     }
 
     private fun ellipsize(text: String, p: Paint, maxW: Float): String {
