@@ -74,8 +74,7 @@ object PrintJob {
             return Outcome.FAILED to "Не удалось получить погоду: ${e.message}"
         }
 
-        val side = if (p.backSide) "оборот" else "лицо"
-        val footer = "Лист ${p.sheetIndex + 1}/${p.sheets} · проход ${p.pass + 1}/8 ($side)"
+        val footer = footerText(p)
         try {
             if (p.protocol == "escpr") {
                 val q = PageRenderer.renderQuarter(weather, p.quadrant, p.city, footer)
@@ -116,6 +115,12 @@ object PrintJob {
             }
         }
         return Outcome.PRINTED to p.lastResult
+    }
+
+    /** Подпись внизу прогноза: какой лист и проход. */
+    fun footerText(p: Prefs): String {
+        val side = if (p.backSide) "оборот" else "лицо"
+        return "Лист ${p.sheetIndex + 1}/${p.sheets} · проход ${p.pass + 1}/8 ($side)"
     }
 
     private const val CHANNEL = "paper"

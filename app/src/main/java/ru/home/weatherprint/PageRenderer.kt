@@ -12,8 +12,9 @@ import java.util.Locale
 
 /**
  * Рисует лист A4 (300 dpi), где заполнена только одна четверть.
- * Внизу прогноза — полоса из 6 цветов L805, чтобы прокачивались все дюзы,
- * включая светло-голубую и светло-пурпурную.
+ * Слева у прогноза — «цветной корешок»: 6 тонких вертикальных линий цветами чернил L805
+ * во всю высоту карточки. Колонки дюз в головке вертикальные (≈1,5–2 см), поэтому линия
+ * во всю высоту прогоняет каждую дюзу своего цвета, а чернил тратит совсем немного.
  */
 object PageRenderer {
     private const val W = 2480
@@ -21,6 +22,37 @@ object PageRenderer {
     private const val PAD = 120f // ≈1 см от края четверти — с запасом на поля принтера
 
     private val ru = Locale("ru")
+
+    /** Чернила L805 и цвета, которыми их задействуем: C, M, Y, K, светло-голубой, светло-пурпурный. */
+    val INKS = listOf(
+        "Голубой" to Color.rgb(0, 255, 255),
+        "Пурпурный" to Color.rgb(255, 0, 255),
+        "Жёлтый" to Color.rgb(255, 255, 0),
+        "Чёрный" to Color.rgb(0, 0, 0),
+        "Светло-голубой" to Color.rgb(170, 235, 255),
+        "Светло-пурпурный" to Color.rgb(255, 185, 240),
+    )
+
+    /** Корешок: толщина линии, промежуток и отступ до текста (единицы 300 dpi; 12 ≈ 1 мм). */
+    private const val SPINE_LINE = 9f
+    private const val SPINE_GAP = 5f
+    private const val SPINE_TEXT_GAP = 40f
+
+    /** Предпросмотр четверти для экрана: [contentTop]–[contentBottom] — строки, где идёт прогноз. */
+    class Preview(val bitmap: Bitmap, val contentTop: Int, val contentBottom: Int)
+
+    /** Та же четверть, что уходит на принтер, в уменьшенном виде ([scale] от 300 dpi). */
+    fun renderPreview(w: Weather, city: String, footer: String, scale: Float = 0.6f): Preview {
+        val qw = W / 2f
+        val qh = H / 2f
+        val bmp = Bitmap.createBitmap((qw * scale).toInt(), (qh * scale).toInt(), Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        c.drawColor(Color.WHITE)
+        c.scale(scale, scale)
+        c.translate(PAD, PAD)
+        drawForecast(c, w, city, footer, qw - 2 * PAD, qh - 2 * PAD)
+        return Preview(bmp, (PAD * scale).toInt(), ((qh - PAD) * scale).toInt())
+    }
 
     fun renderJpeg(w: Weather, quadrant: Int, city: String, footer: String): ByteArray {
         val bmp = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888)
@@ -79,7 +111,22 @@ object PageRenderer {
         typeface = Typeface.create(Typeface.SANS_SERIF, if (bold) Typeface.BOLD else Typeface.NORMAL)
     }
 
-    private fun drawForecast(c: Canvas, w: Weather, city: String, footer: String, cw: Float, ch: Float) {
+    private fun drawForecast(c: Canvas, w: Weather, city: String, footer: String, fullW: Float, ch: Float) {
+        // Цветной корешок во всю высоту карточки, текст — правее
+        val ink = Paint().apply { isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeWidth = SPINE_LINE }
+        INKS.forEachIndexed { i, (_, col) ->
+            ink.color = col
+            val x = SPINE_LINE / 2 + i * (SPINE_LINE + SPINE_GAP)
+            c.drawLine(x, SPINE_LINE / 2, x, ch - SPINE_LINE / 2, ink)
+        }
+        val spineW = INKS.size * SPINE_LINE + (INKS.size - 1) * SPINE_GAP + SPINE_TEXT_GAP
+        c.save()
+        c.translate(spineW, 0f)
+        drawContent(c, w, city, footer, fullW - spineW, ch)
+        c.restore()
+    }
+
+    private fun drawContent(c: Canvas, w: Weather, city: String, footer: String, cw: Float, ch: Float) {
         val gray = Color.rgb(90, 90, 90)
         val line = Paint().apply { color = Color.rgb(170, 170, 170); strokeWidth = 4f }
 
@@ -124,26 +171,6 @@ object PageRenderer {
             val prPaint = paint(44f, color = Color.rgb(0, 110, 200))
             c.drawText(pr, cw - prPaint.measureText(pr), y, prPaint)
             y += 115f
-        }
-
-        // Полоса прокачки: C, M, Y, K, светло-голубой, светло-пурпурный
-        val inks = intArrayOf(
-            Color.rgb(0, 255, 255),
-            Color.rgb(255, 0, 255),
-            Color.rgb(255, 255, 0),
-            Color.rgb(0, 0, 0),
-            Color.rgb(170, 235, 255),
-            Color.rgb(255, 185, 240),
-        )
-        val stripTop = ch - 230f
-        val stripH = 90f
-        val gap = 16f
-        val sw = (cw - gap * (inks.size - 1)) / inks.size
-        val box = Paint()
-        inks.forEachIndexed { i, col ->
-            box.color = col
-            val x = i * (sw + gap)
-            c.drawRect(x, stripTop, x + sw, stripTop + stripH, box)
         }
 
         // Подвал: счётчик листа

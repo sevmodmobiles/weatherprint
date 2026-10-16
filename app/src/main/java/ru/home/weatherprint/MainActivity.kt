@@ -110,6 +110,7 @@ class MainActivity : ComponentActivity() {
         }
 
         button("Напечатать сейчас") { runPrint() }
+        button("Предпросмотр печати") { showPreview() }
         button("Проверить принтер") { checkPrinter() }
 
         header("Бумага")
@@ -223,6 +224,70 @@ class MainActivity : ComponentActivity() {
         } else {
             instruction.visibility = View.GONE
             reloadBtn.visibility = View.GONE
+        }
+    }
+
+    /** Показывает, как выйдет прогноз, и примерный расход каждого из 6 чернил — без бумаги и чернил. */
+    private fun showPreview() {
+        save()
+        lifecycleScope.launch {
+            val r = withContext(Dispatchers.Default) {
+                runCatching {
+                    val wx = weatherView.weather ?: withContext(Dispatchers.IO) { WeatherApi.fetch(prefs.lat, prefs.lon) }
+                    val pv = PageRenderer.renderPreview(wx, prefs.city, PrintJob.footerText(prefs))
+                    pv to InkCheck.analyze(pv.bitmap, pv.contentTop, pv.contentBottom)
+                }
+            }
+            val (pv, inks) = r.getOrElse {
+                Toast.makeText(this@MainActivity, "Не удалось получить погоду: ${it.message}", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+
+            val box = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(16), dp(8), dp(16), dp(8))
+            }
+            box.addView(android.widget.ImageView(this@MainActivity).apply {
+                setImageBitmap(pv.bitmap)
+                adjustViewBounds = true
+                setBackgroundColor(Color.rgb(200, 200, 200))
+                setPadding(dp(1), dp(1), dp(1), dp(1))
+            })
+            box.addView(TextView(this@MainActivity).apply {
+                text = "Так прогноз выйдет на четверти листа (${PrintJob.footerText(prefs)})."
+                setTextColor(Color.GRAY); setPadding(0, dp(6), 0, dp(10))
+            })
+            box.addView(TextView(this@MainActivity).apply {
+                text = "Чернила (оценка)"; textSize = 16f; setTypeface(null, Typeface.BOLD)
+            })
+            val sb = android.text.SpannableStringBuilder()
+            for (ink in inks) {
+                val start = sb.length
+                sb.append("■ ")
+                sb.setSpan(android.text.style.ForegroundColorSpan(ink.color), start, start + 1, 0)
+                sb.append(ink.name).append(": ")
+                sb.append(if (ink.coverage < 0.1) "%.2f".format(ink.coverage) else "%.1f".format(ink.coverage))
+                sb.append("% заливки, по высоте ").append("${Math.round(ink.height)}%  ")
+                sb.append(when { ink.unused -> "✗ не используется"; ink.ok -> "✓"; else -> "⚠ мало" })
+                sb.append("\n")
+            }
+            box.addView(TextView(this@MainActivity).apply { text = sb; textSize = 14f; setLineSpacing(0f, 1.2f) })
+            val bad = inks.filter { !it.ok }
+            box.addView(TextView(this@MainActivity).apply {
+                setTextColor(Color.GRAY); textSize = 12f; setPadding(0, dp(6), 0, 0)
+                text = (if (bad.isEmpty()) "Все 6 чернил задействованы по всей высоте карточки — дюзы прокачиваются. "
+                else "Мало задействованы: ${bad.joinToString { it.name.lowercase() }}. Эти дюзы могут подсыхать. ") +
+                    "«% заливки» — расход в пересчёте на сплошную заливку карточки. «По высоте» — на какой доле высоты " +
+                    "встречается цвет: дюзы в головке стоят вертикальной колонкой, поэтому цвет должен идти по всей высоте. " +
+                    "Точную раскладку по чернилам делает сам принтер, здесь — приблизительная оценка."
+            })
+
+            android.app.AlertDialog.Builder(this@MainActivity)
+                .setTitle("Предпросмотр печати")
+                .setView(ScrollView(this@MainActivity).apply { addView(box) })
+                .setPositiveButton("Напечатать") { _, _ -> runPrint() }
+                .setNegativeButton("Закрыть", null)
+                .show()
         }
     }
 
