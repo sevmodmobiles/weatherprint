@@ -15,21 +15,26 @@ import android.content.Context
  * лист лежит в стопке сверху, становится ближе к вам и подаётся первым из переложенных — поэтому
  * переложенные листы идут в обратном порядке печати.
  */
-class Paper(ctx: Context) {
+class Paper(ctx: Context, printerId: String? = null) {
 
     private val sp = ctx.getSharedPreferences("weatherprint", Context.MODE_PRIVATE)
+
+    /** Бумага у каждого принтера своя. По умолчанию — у активного. */
+    val printerId: String = printerId ?: Printers.active(ctx)
+
+    private fun k(name: String) = Printers.key(this.printerId, name)
 
     val tray: MutableList<Int>
     val out: MutableList<Int>
 
     init {
-        if (!sp.contains("paperTray")) migrate()
-        tray = parse(sp.getString("paperTray", ""))
-        out = parse(sp.getString("paperOut", ""))
+        if (!sp.contains(k("paperTray"))) migrate()
+        tray = parse(sp.getString(k("paperTray"), ""))
+        out = parse(sp.getString(k("paperOut"), ""))
     }
 
     /** Сколько листов в пачке. */
-    val sheets get() = sp.getInt("sheets", 30)
+    val sheets get() = sp.getInt(k("sheets"), 30)
 
     /** Лоток опустел — ждём, пока человек переложит стопку. */
     val awaitingReload get() = tray.isEmpty()
@@ -77,7 +82,7 @@ class Paper(ctx: Context) {
 
     /** Новая пачка: [n] чистых листов. */
     fun newPack(n: Int = sheets) {
-        sp.edit().putInt("sheets", n.coerceIn(1, 100)).apply()
+        sp.edit().putInt(k("sheets"), n.coerceIn(1, 100)).apply()
         tray.clear(); out.clear()
         repeat(n.coerceIn(1, 100)) { tray.add(0) }
         save()
@@ -86,7 +91,7 @@ class Paper(ctx: Context) {
     /** Изменили число листов в пачке: добавляем чистые листы в конец лотка или убираем последние. */
     fun resize(n: Int) {
         val target = n.coerceIn(1, 100)
-        sp.edit().putInt("sheets", target).apply()
+        sp.edit().putInt(k("sheets"), target).apply()
         val diff = target - (tray.size + out.size)
         if (diff > 0) repeat(diff) { tray.add(0) }
         else repeat(-diff) { if (tray.size > 1) tray.removeAt(tray.size - 1) }
@@ -166,7 +171,7 @@ class Paper(ctx: Context) {
     // ---------- Хранение ----------
 
     private fun save() {
-        sp.edit().putString("paperTray", tray.joinToString(",")).putString("paperOut", out.joinToString(",")).apply()
+        sp.edit().putString(k("paperTray"), tray.joinToString(",")).putString(k("paperOut"), out.joinToString(",")).apply()
     }
 
     private fun parse(s: String?): MutableList<Int> =
@@ -174,12 +179,12 @@ class Paper(ctx: Context) {
 
     /** Переход со старого счётчика «проход + номер листа». */
     private fun migrate() {
-        val n = sp.getInt("sheets", 30)
-        val pass = sp.getInt("pass", 0)
-        val idx = sp.getInt("sheetIndex", 0).coerceIn(0, n)
+        val n = sp.getInt(k("sheets"), 30)
+        val pass = sp.getInt(k("pass"), 0)
+        val idx = sp.getInt(k("sheetIndex"), 0).coerceIn(0, n)
         val t: List<Int>
         val o: List<Int>
-        if (sp.getBoolean("awaitingReload", false)) {
+        if (sp.getBoolean(k("awaitingReload"), false)) {
             // Старый счётчик уже перешёл к следующему проходу (а после 8-го — обнулился)
             t = emptyList()
             o = List(n) { if (pass == 0) 8 else pass }
@@ -187,6 +192,6 @@ class Paper(ctx: Context) {
             t = List(n - idx) { pass }
             o = List(idx) { pass + 1 }
         }
-        sp.edit().putString("paperTray", t.joinToString(",")).putString("paperOut", o.joinToString(",")).apply()
+        sp.edit().putString(k("paperTray"), t.joinToString(",")).putString(k("paperOut"), o.joinToString(",")).apply()
     }
 }

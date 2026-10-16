@@ -36,7 +36,9 @@ object PrintSchedule {
         val at = LocalTime.of(p.printMinutes / 60, p.printMinutes % 60)
         val now = LocalDateTime.now()
         val today = LocalDate.now()
-        val printedToday = p.lastPrintDate == today.toString()
+        // Сегодня уже напечатали на всех своих принтерах — значит, следующая печать завтра
+        val printers = Printers.configured(ctx)
+        val printedToday = printers.isNotEmpty() && printers.all { Prefs(ctx, it).lastPrintDate == today.toString() }
         val t = today.atTime(at)
         return if (t.isAfter(now) && !printedToday) t else today.plusDays(1).atTime(at)
     }

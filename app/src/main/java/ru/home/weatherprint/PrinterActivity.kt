@@ -22,6 +22,8 @@ class PrinterActivity : BaseActivity() {
     private lateinit var art: PrinterArt
     private lateinit var nameText: TextView
     private lateinit var statusLine: TextView
+    private lateinit var modelLine: TextView
+    private lateinit var label: EditText
     private lateinit var host: EditText
     private lateinit var path: EditText
     private lateinit var pathBox: LinearLayout
@@ -53,8 +55,9 @@ class PrinterActivity : BaseActivity() {
             textSize = 22f; setTextColor(Ui.TEXT); setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL))
             gravity = Gravity.CENTER; setPadding(0, dp(14), 0, 0)
         }
+        modelLine = TextView(this).apply { textSize = 14f; setTextColor(Ui.SUB); gravity = Gravity.CENTER; setPadding(0, dp(2), 0, 0) }
         statusLine = TextView(this).apply { textSize = 14f; setTextColor(Ui.SUB); gravity = Gravity.CENTER; setPadding(0, dp(4), 0, 0) }
-        head.addView(nameText); head.addView(statusLine)
+        head.addView(nameText); head.addView(modelLine); head.addView(statusLine)
         button("Проверить связь", head, filled = false) { checkPrinter(identify = true) }
 
         sectionTitle("Печать")
@@ -77,18 +80,49 @@ class PrinterActivity : BaseActivity() {
 
         sectionTitle("Подключение")
         val conn = card(pad = 8)
-        listItem(conn, Icon.SEARCH, "Найти принтер в сети", "Автоматически, без ввода IP") { findPrinter() }
+        listItem(conn, Icon.SEARCH, "Найти принтер в сети", "Автоматически, без ввода IP") { findPrinter(asNew = false) }
         val manual = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(8), 0, dp(8), dp(8)) }
         conn.addView(manual)
+        label = field(manual, "Своё название (например, «Дом» или «Дача»)", prefs.printerLabel)
         host = field(manual, "IP-адрес принтера", prefs.printerHost,
             InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
         pathBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         manual.addView(pathBox)
         path = field(pathBox, "Путь IPP (обычно /ipp/print)", prefs.ippPath)
+
+        // Свои принтеры: у каждого своя бумага и своя отметка «сегодня уже печатали»
+        sectionTitle("Мои принтеры")
+        val mine = card(pad = 8)
+        val all = Printers.configured(this)
+        for (id in all) {
+            val p = Prefs(this, id)
+            val active = id == prefs.printerId
+            val sub = listOfNotNull(
+                p.printerModel.takeIf { p.printerLabel.isNotEmpty() && it.isNotEmpty() },
+                if (active) "открыт сейчас" else "нажмите, чтобы открыть",
+            ).joinToString(" · ")
+            listItem(mine, Icon.PRINTER, p.displayName, sub) {
+                if (!active) { Printers.setActive(this, id); recreate() }
+            }
+        }
+        listItem(mine, Icon.PLUS, "Добавить ещё принтер", "Например, на даче — со своей бумагой") { findPrinter(asNew = true) }
+        if (all.isNotEmpty()) listItem(mine, Icon.TRASH, "Удалить «${prefs.displayName}»", "Вместе с его счётчиком бумаги") {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Удалить принтер?")
+                .setMessage("«${prefs.displayName}» и его счётчик бумаги будут удалены из приложения.")
+                .setPositiveButton("Удалить") { _, _ ->
+                    Printers.remove(this, prefs.printerId)
+                    recreate()
+                }
+                .setNegativeButton("Отмена", null)
+                .show()
+        }
     }
 
     private fun refresh() {
-        nameText.text = prefs.printerModel.ifEmpty { prefs.printerName }.ifEmpty { "Принтер не выбран" }
+        nameText.text = prefs.displayName
+        modelLine.text = prefs.printerModel
+        modelLine.visibility = if (prefs.printerLabel.isNotEmpty() && prefs.printerModel.isNotEmpty()) View.VISIBLE else View.GONE
         art.showFor(this, prefs)
         if (host.text.toString() != prefs.printerHost) host.setText(prefs.printerHost)
         if (path.text.toString() != prefs.ippPath) path.setText(prefs.ippPath)
@@ -96,6 +130,7 @@ class PrinterActivity : BaseActivity() {
     }
 
     private fun saveConnection() {
+        prefs.printerLabel = label.text.toString()
         prefs.printerHost = host.text.toString()
         if (!escpr) prefs.ippPath = path.text.toString()
     }
@@ -108,16 +143,17 @@ class PrinterActivity : BaseActivity() {
         }
         statusLine.text = statusText(null, "Проверяю связь…")
         lifecycleScope.launch {
-            val ok = withContext(Dispatchers.IO) {
-                runCatching {
-                    val lan = LocalNet.route(this@PrinterActivity)
-                    if (escpr) EscprClient(prefs.printerHost, lan).ping()
-                    else IppClient(prefs.printerHost, prefs.ippPath, lan).getAttributes()
-                }.isSuccess
-            }
-            statusLine.text = statusText(ok, if (ok) "В сети" else LocalNet.offlineReason(this@PrinterActivity, prefs.printerHost))
+            val lan = LocalNet.route(this@PrinterActivity)
+            val reason = withContext(Dispatchers.IO) { PrintJob.reach(this@PrinterActivity, prefs.printerId, lan) }
+            val ok = reason == null
+            statusLine.text = statusText(ok, when {
+                ok -> "В сети"
+                reason!!.startsWith("По адресу") -> "Здесь другой принтер — это не «${prefs.displayName}»"
+                else -> LocalNet.offlineReason(this@PrinterActivity, prefs.printerHost)
+            })
             if (ok && (identify || !PrinterInfo.modelKnown(prefs.printerModel))) {
-                withContext(Dispatchers.IO) { PrinterInfo.identify(this@PrinterActivity) }
+                // Человек сам проверяет связь — значит, он рядом с принтером: можно запомнить его номер
+                withContext(Dispatchers.IO) { PrinterInfo.identify(this@PrinterActivity, prefs.printerId, learnIdentity = identify) }
                 refresh()
             }
         }
@@ -323,7 +359,8 @@ class PrinterActivity : BaseActivity() {
             }
     }
 
-    private fun findPrinter() {
+    /** [asNew] — добавить ещё один принтер; иначе найденный заменит текущий (если это другой — спросим). */
+    private fun findPrinter(asNew: Boolean) {
         val dlg = android.app.ProgressDialog.show(this, null, "Ищу принтеры в сети… (до 15 секунд)", true)
         lifecycleScope.launch {
             val res = runCatching { PrinterDiscovery.discover(this@PrinterActivity) }
@@ -352,23 +389,56 @@ class PrinterActivity : BaseActivity() {
             }.toTypedArray()
             android.app.AlertDialog.Builder(this@PrinterActivity)
                 .setTitle("Выберите принтер")
-                .setItems(labels) { _, i ->
-                    val f = list[i]
-                    prefs.printerName = f.name
-                    prefs.printerHost = f.host
-                    prefs.ippPath = f.path
-                    prefs.protocol = f.protocol
-                    prefs.printerModel = PrinterInfo.cleanModel(f.model)
-                    host.setText(f.host)
-                    path.setText(f.path)
-                    lifecycleScope.launch {
-                        toast("Определяю модель принтера…")
-                        withContext(Dispatchers.IO) { PrinterInfo.identify(this@PrinterActivity) }
-                        // Пересобираем экран: от способа печати зависит, доступно ли обслуживание
-                        recreate()
-                    }
-                }
+                .setItems(labels) { _, i -> choose(list[i], asNew) }
                 .show()
+        }
+    }
+
+    /** Выбран найденный принтер: узнаём, свой ли он уже (по уникальному номеру), и куда его записать. */
+    private fun choose(f: PrinterDiscovery.Found, asNew: Boolean) {
+        lifecycleScope.launch {
+            toast("Определяю принтер…")
+            val lan = LocalNet.route(this@PrinterActivity)
+            val identity = withContext(Dispatchers.IO) { PrinterInfo.readIdentity(f.host, f.protocol, f.path, lan) }
+            val known = identity?.let { idn ->
+                Printers.configured(this@PrinterActivity).firstOrNull { Prefs(this@PrinterActivity, it).printerIdentity == idn }
+            }
+            when {
+                known != null -> {
+                    toast("Это ваш принтер «${Prefs(this@PrinterActivity, known).displayName}» — адрес обновлён")
+                    save(known, f, identity)
+                }
+                asNew -> save(Printers.add(this@PrinterActivity), f, identity)
+                prefs.printerName.isEmpty() -> save(prefs.printerId, f, identity)
+                else -> android.app.AlertDialog.Builder(this@PrinterActivity)
+                    .setTitle("Другой принтер")
+                    .setMessage("Это не «${prefs.displayName}». Добавить его как ещё один принтер — со своей бумагой " +
+                        "и расписанием — или заменить им «${prefs.displayName}»?")
+                    .setPositiveButton("Добавить") { _, _ -> save(Printers.add(this@PrinterActivity), f, identity) }
+                    .setNeutralButton("Заменить") { _, _ -> save(prefs.printerId, f, identity) }
+                    .setNegativeButton("Отмена", null)
+                    .show()
+            }
+        }
+    }
+
+    private fun save(id: String, f: PrinterDiscovery.Found, identity: String?) {
+        val p = Prefs(this, id)
+        p.printerName = f.name
+        p.printerHost = f.host
+        p.ippPath = f.path
+        p.protocol = f.protocol
+        p.printerModel = PrinterInfo.cleanModel(f.model)
+        p.printerIdentity = identity.orEmpty()
+        Printers.setActive(this, id)
+        if (id == prefs.printerId) {
+            host.setText(f.host)
+            path.setText(f.path)
+        }
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) { PrinterInfo.identify(this@PrinterActivity, id, learnIdentity = identity == null) }
+            // Пересобираем экран: от способа печати зависит, доступно ли обслуживание
+            recreate()
         }
     }
 }

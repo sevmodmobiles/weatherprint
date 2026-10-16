@@ -29,45 +29,79 @@ object PrintJob {
     enum class Outcome { PRINTED, SKIPPED, FAILED }
 
     /**
-     * @param force true — «напечатать сейчас» из приложения: игнорирует дату и час,
-     *              но счётчик бумаги учитывает так же.
+     * Попытка печати.
+     *
+     * По расписанию ([force] = false) — на тот из своих принтеров, что сейчас рядом (отвечает и проходит
+     * проверку уникального номера) и сегодня ещё не печатал. «Напечатать сейчас» — только на активный.
      */
     suspend fun run(ctx: Context, force: Boolean): Pair<Outcome, String> {
-        val p = Prefs(ctx)
+        val g = Prefs(ctx)
         val today = LocalDate.now().toString()
-
-        val paper = Paper(ctx)
-        val quarter = paper.next ?: return Outcome.SKIPPED to "Ждём перекладки бумаги"
         if (!force) {
-            if (p.lastPrintDate == today) return Outcome.SKIPPED to "Сегодня уже печатали"
-            if (!p.scheduleEnabled) return Outcome.SKIPPED to "Печать по расписанию выключена"
+            if (!g.scheduleEnabled) return Outcome.SKIPPED to "Печать по расписанию выключена"
             val now = LocalTime.now()
-            if (now.hour * 60 + now.minute < p.printMinutes) return Outcome.SKIPPED to "Ещё рано"
+            if (now.hour * 60 + now.minute < g.printMinutes) return Outcome.SKIPPED to "Ещё рано"
+        }
+
+        val candidates = if (force) listOf(Printers.active(ctx)).filter { Prefs(ctx, it).printerName.isNotEmpty() }
+        else Printers.configured(ctx).filter { Prefs(ctx, it).lastPrintDate != today }
+        if (candidates.isEmpty()) {
+            return Outcome.SKIPPED to if (Printers.configured(ctx).isEmpty()) "Принтер не выбран" else "Сегодня уже печатали"
         }
 
         val lan = LocalNet.route(ctx)
+        var target: String? = null
+        var reason = "Принтер не найден в сети"
+        for (id in candidates) {
+            val r = reach(ctx, id, lan)
+            if (r == null) { target = id; break }
+            reason = r
+        }
+        // Возможно, роутер выдал принтеру новый IP — ищем его в сети по уникальному номеру
+        if (target == null && LocalNet.wifi(ctx) != null) target = rediscover(ctx, candidates, lan)
+        target ?: return Outcome.SKIPPED to reason
 
-        /** Принтер отвечает — значит, телефон дома в той же сети. */
-        fun ping() {
+        return printOn(ctx, target, lan)
+    }
+
+    /** null — принтер на месте и это действительно он; иначе — причина, почему печатать нельзя. */
+    fun reach(ctx: Context, id: String, lan: android.net.Network?): String? {
+        val p = Prefs(ctx, id)
+        try {
             if (p.protocol == "escpr") EscprClient(p.printerHost, lan).ping()
             else IppClient(p.printerHost, p.ippPath, lan).getAttributes(timeoutMs = 3000)
-        }
-
-        try {
-            ping()
         } catch (e: Exception) {
-            // Возможно, роутер выдал принтеру новый IP — ищем его по имени.
-            val again = if (p.printerName.isNotEmpty()) PrinterDiscovery.findByName(ctx, p.printerName) else null
-            if (again == null) return Outcome.SKIPPED to "Принтер не найден в сети (${e.message})"
-            p.printerHost = again.host
-            p.ippPath = again.path
-            p.protocol = again.protocol
-            try {
-                ping()
-            } catch (e2: Exception) {
-                return Outcome.SKIPPED to "Принтер не отвечает (${e2.message})"
-            }
+            return "Принтер не найден в сети"
         }
+        // По тому же адресу может оказаться чужой принтер — в гостях, в офисе
+        if (PrinterInfo.verify(p, lan) == false) return "По адресу ${p.printerHost} другой принтер — печать пропущена"
+        return null
+    }
+
+    /** Ищет свои принтеры в текущей сети по уникальному номеру; найденному обновляет адрес. */
+    private suspend fun rediscover(ctx: Context, candidates: List<String>, lan: android.net.Network?): String? {
+        val withId = candidates.filter { Prefs(ctx, it).printerIdentity.isNotEmpty() }
+        if (withId.isEmpty()) return null
+        val found = runCatching { PrinterDiscovery.discover(ctx, seconds = 4).found }.getOrDefault(emptyList())
+        for (f in found) {
+            val identity = PrinterInfo.readIdentity(f.host, f.protocol, f.path, lan) ?: continue
+            val id = withId.firstOrNull { Prefs(ctx, it).printerIdentity == identity } ?: continue
+            val p = Prefs(ctx, id)
+            p.printerHost = f.host
+            p.ippPath = f.path
+            p.protocol = f.protocol
+            return id
+        }
+        return null
+    }
+
+    private fun printOn(ctx: Context, id: String, lan: android.net.Network?): Pair<Outcome, String> {
+        val p = Prefs(ctx, id)
+        val today = LocalDate.now().toString()
+        val paper = Paper(ctx, id)
+        val quarter = paper.next ?: return Outcome.SKIPPED to "Ждём перекладки бумаги"
+        // Печатаем на этом принтере — он и становится активным на экранах
+        Printers.setActive(ctx, id)
 
         val weather = try {
             WeatherApi.fetch(p.lat, p.lon)
@@ -95,7 +129,7 @@ object PrintJob {
             return Outcome.FAILED to msg
         }
 
-        // Успех — двигаем счётчик
+        // Успех — двигаем счётчик этого принтера
         p.lastPrintDate = today
         p.lastPrintAt = java.time.LocalDateTime.now().withSecond(0).withNano(0).toString().take(16)
         val time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))
@@ -104,9 +138,11 @@ object PrintJob {
         if (Phrases.isWeather(phrase)) p.usedPhrases = p.usedPhrases + phrase
         if (paper.awaitingReload) {
             val (title, text) = paper.reloadNotice()
-            notify(ctx, title, text)
+            val many = Printers.configured(ctx).size > 1
+            notify(ctx, if (many) "$title — ${p.displayName}" else title, text)
         }
-        return Outcome.PRINTED to p.lastResult
+        val where = if (Printers.configured(ctx).size > 1) " на «${p.displayName}»" else ""
+        return Outcome.PRINTED to "Напечатано$where в $time"
     }
 
     /** Подпись внизу прогноза: какая четверть и сколько листов ещё в лотке. */

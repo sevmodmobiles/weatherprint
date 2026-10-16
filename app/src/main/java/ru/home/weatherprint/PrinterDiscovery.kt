@@ -70,14 +70,6 @@ object PrinterDiscovery {
         Result(found, report)
     }
 
-    /** Ищет ранее выбранный принтер — чтобы найти его заново, если сменился IP. */
-    suspend fun findByName(ctx: Context, name: String): Found? {
-        val list = discover(ctx, seconds = 4).found
-        // Найденный перебором подсети принтер может называться иначе, чем по mDNS.
-        // Если принтер в сети один — это он.
-        return list.firstOrNull { it.name == name } ?: list.singleOrNull()
-    }
-
     // ---------- mDNS ----------
 
     private class MdnsResult(val found: List<Found>, val report: String)

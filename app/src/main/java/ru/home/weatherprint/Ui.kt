@@ -52,6 +52,12 @@ abstract class BaseActivity : ComponentActivity() {
     protected lateinit var prefs: Prefs
     protected lateinit var content: LinearLayout
 
+    /** Активный принтер мог смениться, пока экран был закрыт, — перечитываем настройки. */
+    override fun onResume() {
+        if (::prefs.isInitialized) prefs = Prefs(this)
+        super.onResume()
+    }
+
     fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     fun dpf(v: Float) = v * resources.displayMetrics.density
 

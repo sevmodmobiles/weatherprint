@@ -26,7 +26,7 @@ class PrinterArt(context: Context) : View(context) {
 
     /** Загружает картинку и вид иллюстрации для выбранного принтера. */
     fun showFor(ctx: Context, prefs: Prefs) {
-        bitmap = PrinterInfo.icon(ctx)
+        bitmap = PrinterInfo.icon(ctx, prefs.printerId)
         val model = prefs.printerModel.ifEmpty { prefs.printerName }
         // Модель неизвестна — для Epson без AirPrint скорее всего это принтер с баками (L-серия)
         inkTank = PrinterInfo.isInkTank(model) || (!PrinterInfo.modelKnown(model) && prefs.protocol == "escpr")

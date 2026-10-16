@@ -45,7 +45,8 @@ class SettingsActivity : BaseActivity() {
 
     private fun build() {
         // Бумага
-        sectionTitle("Бумага")
+        // У каждого принтера своя бумага — показываем, о каком речь
+        sectionTitle(if (Printers.configured(this).size > 1) "Бумага · ${prefs.displayName}" else "Бумага")
         val paper = card()
         paperStatus = label("", paper, 15f)
         reloadBox = LinearLayout(this).apply {

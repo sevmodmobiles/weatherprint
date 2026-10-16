@@ -11,7 +11,7 @@ import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 
-enum class Icon { GEAR, PRINTER, CLOCK, BACK, CHEVRON, PAPER, PIN, DOWNLOAD, DROP, SEARCH, EYE, LINES, WIFI }
+enum class Icon { GEAR, PRINTER, CLOCK, BACK, CHEVRON, PAPER, PIN, DOWNLOAD, DROP, SEARCH, EYE, LINES, WIFI, PLUS, TRASH }
 
 /** Простые линейные значки, нарисованные кодом (сетка 24×24, как у Material Icons). */
 class IconView(context: Context) : View(context) {
@@ -122,6 +122,17 @@ class IconView(context: Context) : View(context) {
                 c.line(12f, 4f, 12f, 10f)
                 c.line(12f, 14f, 12f, 20f)
                 c.line(18f, 4f, 18f, 20f)
+            }
+            Icon.PLUS -> {
+                c.line(12f, 5f, 12f, 19f)
+                c.line(5f, 12f, 19f, 12f)
+            }
+            Icon.TRASH -> {
+                c.line(4f, 6.5f, 20f, 6.5f)
+                c.line(9f, 6.5f, 9f, 3.5f, 15f, 3.5f, 15f, 6.5f)
+                c.line(6f, 6.5f, 7f, 20.5f, 17f, 20.5f, 18f, 6.5f)
+                c.line(10f, 10f, 10f, 17f)
+                c.line(14f, 10f, 14f, 17f)
             }
             Icon.WIFI -> {
                 c.drawArc(RectF(2f, 5f, 22f, 25f), 225f, 90f, false, stroke)

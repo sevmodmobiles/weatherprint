@@ -36,7 +36,7 @@ class CleaningWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
 
         fun start(ctx: Context, times: Int, nozzleCheck: Boolean) {
             val req = OneTimeWorkRequestBuilder<CleaningWorker>()
-                .setInputData(workDataOf("times" to times, "check" to nozzleCheck))
+                .setInputData(workDataOf("times" to times, "check" to nozzleCheck, "pid" to Printers.active(ctx)))
                 .build()
             WorkManager.getInstance(ctx).enqueueUniqueWork(WORK, ExistingWorkPolicy.KEEP, req)
         }
@@ -47,7 +47,7 @@ class CleaningWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
     override suspend fun doWork(): Result {
         val times = inputData.getInt("times", 1).coerceIn(1, 5)
         val check = inputData.getBoolean("check", false)
-        val p = Prefs(applicationContext)
+        val p = Prefs(applicationContext, inputData.getString("pid"))
         val lan = LocalNet.route(applicationContext)
         val epson = EscprClient(p.printerHost, lan)
         var confirmed = true

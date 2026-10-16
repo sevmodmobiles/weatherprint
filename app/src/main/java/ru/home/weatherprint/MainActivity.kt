@@ -159,7 +159,7 @@ class MainActivity : BaseActivity() {
         nextPrint.text = if (prefs.scheduleEnabled) "Следующая: ${PrintSchedule.describe(this)}" else "Выключено"
 
         // Принтер
-        printerTitle.text = prefs.printerModel.ifEmpty { prefs.printerName }.ifEmpty { "Принтер не выбран" }
+        printerTitle.text = prefs.displayName
         printerArt.showFor(this, prefs)
         if (prefs.printerName.isEmpty()) printerStatus.text = "Нажмите, чтобы найти принтер в сети"
         lastPrint.text = "Последняя печать: " + lastPrintText()
@@ -192,19 +192,34 @@ class MainActivity : BaseActivity() {
         }, m / 60, m % 60, true).show()
     }
 
-    /** Проверяет, отвечает ли принтер, — для строки состояния на карточке. Заодно один раз определяет модель и картинку. */
+    /**
+     * Проверяет, на месте ли принтер, — для строки состояния на карточке. Если активный не отвечает,
+     * а рядом другой свой принтер (например, на даче), переключается на него.
+     */
     private fun checkPrinter() {
         if (prefs.printerName.isEmpty()) return
         printerStatus.text = statusText(null, "Проверяю связь…")
         lifecycleScope.launch {
-            val ok = withContext(Dispatchers.IO) {
-                runCatching {
-                    val lan = LocalNet.route(this@MainActivity)
-                    if (prefs.protocol == "escpr") EscprClient(prefs.printerHost, lan).ping()
-                    else IppClient(prefs.printerHost, prefs.ippPath, lan).getAttributes(timeoutMs = 3000)
-                }.isSuccess
+            val lan = LocalNet.route(this@MainActivity)
+            var reason = withContext(Dispatchers.IO) { PrintJob.reach(this@MainActivity, prefs.printerId, lan) }
+            if (reason != null) {
+                val other = withContext(Dispatchers.IO) {
+                    (Printers.configured(this@MainActivity) - prefs.printerId)
+                        .firstOrNull { PrintJob.reach(this@MainActivity, it, lan) == null }
+                }
+                if (other != null) {
+                    Printers.setActive(this@MainActivity, other)
+                    prefs = Prefs(this@MainActivity)
+                    reason = null
+                    refresh()
+                }
             }
-            printerStatus.text = statusText(ok, if (ok) "В сети" else LocalNet.offlineReason(this@MainActivity, prefs.printerHost))
+            val ok = reason == null
+            printerStatus.text = statusText(ok, when {
+                ok -> "В сети"
+                reason!!.startsWith("По адресу") -> "Здесь другой принтер"
+                else -> LocalNet.offlineReason(this@MainActivity, prefs.printerHost)
+            })
             if (ok && !PrinterInfo.modelKnown(prefs.printerModel)) {
                 withContext(Dispatchers.IO) { PrinterInfo.identify(this@MainActivity) }
                 refresh()

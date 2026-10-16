@@ -9,31 +9,50 @@ import android.content.Context
  * Проходы 1–4 — лицевая сторона (четверти: верх-лево, верх-право, низ-лево, низ-право),
  * проходы 5–8 — оборот (те же четверти). Лист крутить не нужно: позицию сдвигает приложение.
  */
-class Prefs(context: Context) {
+class Prefs(context: Context, printerId: String? = null) {
     private val sp = context.getSharedPreferences("weatherprint", Context.MODE_PRIVATE)
 
+    /** Принтер, к которому относятся его настройки (адрес, модель, последняя печать). По умолчанию — активный. */
+    val printerId: String = printerId ?: Printers.active(context)
+
+    private fun k(name: String) = Printers.key(this.printerId, name)
+
+    /** Уникальный номер принтера: «mac:…», «uuid:…» или «sn:…»; пусто — неизвестен. */
+    var printerIdentity: String
+        get() = sp.getString(k("identity"), "")!!
+        set(v) = sp.edit().putString(k("identity"), v).apply()
+
+    /** Своё название принтера («Дом», «Дача»); пусто — показываем модель. */
+    var printerLabel: String
+        get() = sp.getString(k("label"), "")!!
+        set(v) = sp.edit().putString(k("label"), v.trim()).apply()
+
+    /** Как показывать принтер: своё название, модель или имя в сети. */
+    val displayName: String
+        get() = printerLabel.ifEmpty { printerModel }.ifEmpty { printerName }.ifEmpty { "Принтер не выбран" }
+
     var printerHost: String
-        get() = sp.getString("host", "192.168.1.50")!!
-        set(v) = sp.edit().putString("host", v.trim()).apply()
+        get() = sp.getString(k("host"), "192.168.1.50")!!
+        set(v) = sp.edit().putString(k("host"), v.trim()).apply()
 
     /** Имя принтера в сети (mDNS). По нему принтер ищется заново, если сменился IP. */
     var printerName: String
-        get() = sp.getString("printerName", "")!!
-        set(v) = sp.edit().putString("printerName", v).apply()
+        get() = sp.getString(k("printerName"), "")!!
+        set(v) = sp.edit().putString(k("printerName"), v).apply()
 
     /** Модель принтера для показа («Epson L805»); пусто — ещё не определяли. */
     var printerModel: String
-        get() = sp.getString("printerModel", "")!!
-        set(v) = sp.edit().putString("printerModel", v).apply()
+        get() = sp.getString(k("printerModel"), "")!!
+        set(v) = sp.edit().putString(k("printerModel"), v).apply()
 
     var ippPath: String
-        get() = sp.getString("path", "/ipp/print")!!
-        set(v) = sp.edit().putString("path", v.trim().let { if (it.startsWith("/")) it else "/$it" }).apply()
+        get() = sp.getString(k("path"), "/ipp/print")!!
+        set(v) = sp.edit().putString(k("path"), v.trim().let { if (it.startsWith("/")) it else "/$it" }).apply()
 
     /** Как печатать: "ipp" (AirPrint/Mopria) или "escpr" (Epson без AirPrint, порт 9100). */
     var protocol: String
-        get() = sp.getString("protocol", "ipp")!!
-        set(v) = sp.edit().putString("protocol", v).apply()
+        get() = sp.getString(k("protocol"), "ipp")!!
+        set(v) = sp.edit().putString(k("protocol"), v).apply()
 
     var city: String
         get() = sp.getString("city", "Санкт-Петербург")!!
@@ -49,8 +68,8 @@ class Prefs(context: Context) {
 
     /** Сколько листов в пачке. */
     var sheets: Int
-        get() = sp.getInt("sheets", 30)
-        set(v) = sp.edit().putInt("sheets", v.coerceIn(1, 100)).apply()
+        get() = sp.getInt(k("sheets"), 30)
+        set(v) = sp.edit().putInt(k("sheets"), v.coerceIn(1, 100)).apply()
 
     /** Печатать ли по расписанию. */
     var scheduleEnabled: Boolean
@@ -64,16 +83,16 @@ class Prefs(context: Context) {
 
     /** Дата последней печати, yyyy-MM-dd. */
     var lastPrintDate: String
-        get() = sp.getString("lastPrintDate", "")!!
-        set(v) = sp.edit().putString("lastPrintDate", v).apply()
+        get() = sp.getString(k("lastPrintDate"), "")!!
+        set(v) = sp.edit().putString(k("lastPrintDate"), v).apply()
 
     /** Время последней успешной печати, «yyyy-MM-ddTHH:mm»; пусто — ещё не печатали. */
     var lastPrintAt: String
-        get() = sp.getString("lastPrintAt", null)
+        get() = sp.getString(k("lastPrintAt"), null)
             // Из старых версий — достаём из текста «Напечатано 2026-10-16 в 06:00 (…)»
             ?: Regex("Напечатано (\\d{4}-\\d{2}-\\d{2}) в (\\d{2}:\\d{2})").find(lastResult)
                 ?.let { "${it.groupValues[1]}T${it.groupValues[2]}" }.orEmpty()
-        set(v) = sp.edit().putString("lastPrintAt", v).apply()
+        set(v) = sp.edit().putString(k("lastPrintAt"), v).apply()
 
     /** Погодные фразы, уже напечатанные в этом году, — чтобы не повторять. */
     var usedPhrases: Set<String>
@@ -86,6 +105,6 @@ class Prefs(context: Context) {
             .putString("phrasesUsed", v.joinToString("\n")).apply()
 
     var lastResult: String
-        get() = sp.getString("lastResult", "Ещё не печатали")!!
-        set(v) = sp.edit().putString("lastResult", v).apply()
+        get() = sp.getString(k("lastResult"), "Ещё не печатали")!!
+        set(v) = sp.edit().putString(k("lastResult"), v).apply()
 }

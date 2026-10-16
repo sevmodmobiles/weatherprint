@@ -36,6 +36,7 @@ class IppClient(
         attr(out, 0x44, "", "printer-name")
         attr(out, 0x44, "", "printer-info")
         attr(out, 0x44, "", "printer-icons")
+        attr(out, 0x44, "", "printer-uuid")
         out.writeByte(0x03)
         val resp = post(body.toByteArray(), timeoutMs)
         checkStatus(resp)

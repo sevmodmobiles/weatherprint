@@ -53,6 +53,18 @@ object PrinterStatus {
                 ?.takeIf { s -> s.length in 3..80 && s.any { it.isDigit() } && s.all { it.code in 32..126 } }
         }
 
+    /** MAC-адрес сетевого интерфейса принтера (ifPhysAddress), «aa:bb:cc:dd:ee:ff». */
+    fun macAddress(host: String, lan: Network?): String? = (1..4).firstNotNullOfOrNull { i ->
+        snmpGet(host, "1.3.6.1.2.1.2.2.1.6.$i", lan)
+            ?.takeIf { it.size == 6 && it.any { b -> b.toInt() != 0 } }
+            ?.joinToString(":") { "%02x".format(it.toInt() and 0xFF) }
+    }
+
+    /** Серийный номер из Printer-MIB (prtGeneralSerialNumber). */
+    fun serialNumber(host: String, lan: Network?): String? =
+        snmpGet(host, "1.3.6.1.2.1.43.5.1.1.17.1", lan)?.toString(Charsets.US_ASCII)?.trim()
+            ?.takeIf { s -> s.length in 4..40 && s.all { it.isLetterOrDigit() || it == '-' } }
+
     fun hrPrinterStatus(host: String, lan: Network?): Int? {
         val v = snmpGet(host, HR_PRINTER_STATUS, lan) ?: return null
         if (v.isEmpty() || v.size > 4) return null

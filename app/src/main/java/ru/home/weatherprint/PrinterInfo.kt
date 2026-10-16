@@ -17,12 +17,39 @@ import java.net.URL
  */
 object PrinterInfo {
 
-    private const val ICON_FILE = "printer_icon.png"
-
-    fun iconFile(ctx: Context) = File(ctx.filesDir, ICON_FILE)
+    fun iconFile(ctx: Context, printerId: String = Printers.active(ctx)) = File(ctx.filesDir, "printer_icon_$printerId.png")
 
     /** Сохранённая картинка принтера или null. */
-    fun icon(ctx: Context): Bitmap? = iconFile(ctx).takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.path) }
+    fun icon(ctx: Context, printerId: String = Printers.active(ctx)): Bitmap? =
+        iconFile(ctx, printerId).takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.path) }
+
+    // ---------- Уникальный номер принтера ----------
+
+    /**
+     * Уникальный номер принтера по адресу [host]: UUID из IPP, MAC-адрес или серийный номер по SNMP.
+     * Нужен, чтобы не перепутать свой принтер с чужим той же модели или с чужим принтером на том же IP.
+     */
+    fun readIdentity(host: String, protocol: String, path: String, lan: android.net.Network?): String? {
+        if (protocol != "escpr") {
+            runCatching { IppClient(host, path, lan).getAttributes() }.getOrNull()
+                ?.get("printer-uuid")?.firstOrNull()?.takeIf { it.isNotBlank() }
+                ?.let { return "uuid:" + it.removePrefix("urn:uuid:").lowercase() }
+        }
+        PrinterStatus.macAddress(host, lan)?.let { return "mac:$it" }
+        PrinterStatus.serialNumber(host, lan)?.let { return "sn:$it" }
+        return null
+    }
+
+    /**
+     * Тот ли это принтер: true — номер совпал, false — по этому адресу другой принтер,
+     * null — проверить нельзя (номер не сохранён или принтер его не сообщает).
+     */
+    fun verify(p: Prefs, lan: android.net.Network?): Boolean? {
+        val saved = p.printerIdentity
+        if (saved.isEmpty()) return null
+        val now = readIdentity(p.printerHost, p.protocol, p.ippPath, lan) ?: return null
+        return now == saved
+    }
 
     /** «EPSON L805 Series» → «Epson L805». */
     fun cleanModel(raw: String): String = raw
@@ -45,10 +72,14 @@ object PrinterInfo {
      * Определяет модель и пробует скачать картинку. Вызывается после выбора принтера
      * и при первом открытии экрана принтера, если модель ещё не известна. Работает с сетью — не в UI-потоке.
      */
-    fun identify(ctx: Context) {
-        val p = Prefs(ctx)
+    fun identify(ctx: Context, printerId: String = Printers.active(ctx), learnIdentity: Boolean = false) {
+        val p = Prefs(ctx, printerId)
         val lan = LocalNet.route(ctx)
-        iconFile(ctx).delete()
+        // Номер запоминаем только когда человек сам выбрал принтер или проверил связь — то есть он рядом с ним
+        if (learnIdentity || p.printerIdentity.isEmpty()) {
+            readIdentity(p.printerHost, p.protocol, p.ippPath, lan)?.let { p.printerIdentity = it }
+        }
+        iconFile(ctx, printerId).delete()
 
         if (p.protocol == "escpr") {
             // Веб-интерфейс часто называет принтер просто «EPSON» — точную модель спрашиваем по SNMP
@@ -56,7 +87,7 @@ object PrinterInfo {
             p.printerModel = cleanModel(snmp ?: p.printerName.ifEmpty { "Epson" })
             // У части Epson картинка лежит в веб-интерфейсе; у L805 обычно нет — тогда будет иллюстрация.
             for (path in listOf("/PRESENTATION/AIRPRINT/PRINTER_128.PNG", "/PRESENTATION/AIRPRINT/PRINTER_512.PNG")) {
-                if (download(ctx, "http://${p.printerHost}$path", lan)) break
+                if (download(iconFile(ctx, printerId), "http://${p.printerHost}$path", lan)) break
             }
             return
         }
@@ -75,11 +106,11 @@ object PrinterInfo {
                 "http://${p.printerHost}:631$tail",
                 uri,
             )
-            if (candidates.any { download(ctx, it, lan) }) return
+            if (candidates.any { download(iconFile(ctx, printerId), it, lan) }) return
         }
     }
 
-    private fun download(ctx: Context, url: String, lan: Network?): Boolean = runCatching {
+    private fun download(file: File, url: String, lan: Network?): Boolean = runCatching {
         val u = URL(url)
         val conn = (lan?.openConnection(u) ?: u.openConnection()) as HttpURLConnection
         try {
@@ -87,7 +118,7 @@ object PrinterInfo {
             if (conn.responseCode != 200) return@runCatching false
             val bytes = conn.inputStream.use { it.readBytes() }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@runCatching false
-            iconFile(ctx).writeBytes(bytes)
+            file.writeBytes(bytes)
             true
         } finally {
             conn.disconnect()
